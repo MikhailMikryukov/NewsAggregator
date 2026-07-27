@@ -12,6 +12,7 @@ type ISourceArticleRepository interface {
 	GetSources(ctx context.Context) ([]models.Source, error)
 	SaveArticle(ctx context.Context, a models.Article) error
 	GetArticle(ctx context.Context, id int) (*models.Article, error)
+	CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error)
 }
 
 type PostgresRepository struct {
@@ -62,9 +63,9 @@ func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, e
 }
 
 func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) error {
-	query := "INSERT INTO articles (source_id, original_url, content, tags) VALUES ($1, $2, $3, $4)"
+	query := "INSERT INTO articles (source_id, original_url, content, tags, status) VALUES ($1, $2, $3, $4, $5)"
 
-	_, err := r.db.Exec(ctx, query, a.SourceID, a.OriginalURL, a.Content, a.Tags)
+	_, err := r.db.Exec(ctx, query, a.SourceID, a.OriginalURL, a.Content, a.Tags, a.Status)
 	if err != nil {
 		return err
 	}
@@ -84,4 +85,17 @@ func (r *PostgresRepository) GetArticle(ctx context.Context, id int) (*models.Ar
 	}
 
 	return &a, nil
+}
+
+func (r *PostgresRepository) CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error) {
+	query := "SELECT EXISTS(SELECT 1 FROM articles WHERE hash = $1"
+	row := r.db.QueryRow(ctx, query, hash)
+	var exists bool
+
+	err := row.Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists, nil
 }

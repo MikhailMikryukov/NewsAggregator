@@ -11,4 +11,6 @@ type Article struct {
 	OriginalURL string
 	Content     string
 	Tags        []string
+	Hash        [16]byte
+	Status      string
 }
