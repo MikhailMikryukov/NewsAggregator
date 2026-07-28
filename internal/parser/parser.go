@@ -84,8 +84,6 @@ func (p *RSSParser) Parse(ctx context.Context, url string) (*RSSFeed, error) {
 		if item.PubDate != "" {
 			parsedDate, err := parseRSSDate(item.PubDate)
 			if err != nil {
-				// Логируем через контекст или возвращаем ошибку?
-				// Лучше вернуть ошибку, чтобы воркер мог решить, что делать
 				return nil, fmt.Errorf("ошибка парсинга даты для %s: %w", item.Title, err)
 			}
 			item.ParsedPubDate = parsedDate

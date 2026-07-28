@@ -4,11 +4,13 @@ import (
 	"github.com/joho/godotenv"
 	"log"
 	"os"
+	"strconv"
 )
 
 type Config struct {
 	Port               string
 	DBConnectionString string
+	RssWorkersNum      int
 }
 
 // Load загружаем конфиг
@@ -19,9 +21,12 @@ func Load() *Config {
 		log.Println("Warning: .env file not found")
 	}
 
+	workersNum, _ := strconv.Atoi(getEnv("RSS_WORKERS_NUM", "5"))
+
 	return &Config{
 		Port:               getEnv("PORT", "8080"),
 		DBConnectionString: getEnv("DATABASE_URL", "postgresql://login:password@localhost:5432/"),
+		RssWorkersNum:      workersNum,
 	}
 }
 

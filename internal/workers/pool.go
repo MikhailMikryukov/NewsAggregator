@@ -8,12 +8,17 @@ import (
 
 type Pool struct {
 	workers chan *RssWorker
-	jobs    chan string
+	jobs    chan *Job
 	results chan *JobResult
 }
 
+type Job struct {
+	SourceId  int
+	SourceURL string
+}
+
 type JobResult struct {
-	URL  string
+	Job  *Job
 	Feed *parser.RSSFeed
 	Err  error
 }
@@ -21,7 +26,7 @@ type JobResult struct {
 func New(workersNum int, parser *parser.RSSParser) *Pool {
 	pool := &Pool{
 		workers: make(chan *RssWorker, workersNum),
-		jobs:    make(chan string, 20),
+		jobs:    make(chan *Job, 20),
 		results: make(chan *JobResult, 20),
 	}
 
@@ -45,13 +50,13 @@ func (p *Pool) Start(ctx context.Context) {
 					return
 				}
 
-				feed, err := w.Process(ctx, job)
+				feed, err := w.Process(ctx, job.SourceURL)
 				if err != nil {
 					return
 				}
 
 				p.results <- &JobResult{
-					URL:  job,
+					Job:  job,
 					Feed: feed,
 					Err:  err,
 				}
@@ -63,4 +68,15 @@ func (p *Pool) Start(ctx context.Context) {
 		wg.Wait()
 		close(p.results)
 	}()
+}
+
+func (p *Pool) Submit(sourceId int, sourceURL string) {
+	p.jobs <- &Job{
+		SourceId:  sourceId,
+		SourceURL: sourceURL,
+	}
+}
+
+func (p *Pool) Results() <-chan *JobResult {
+	return p.results
 }
