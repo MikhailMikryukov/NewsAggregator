@@ -4,23 +4,23 @@ import (
 	"NewsAggregator/internal/models"
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ISourceArticleRepository interface {
 	SaveSource(ctx context.Context, rssURL string) error
 	GetSources(ctx context.Context) ([]models.Source, error)
 	SaveArticle(ctx context.Context, a models.Article) error
-	GetArticle(ctx context.Context, id int) (*models.Article, error)
+	GetArticle(ctx context.Context, id int64) (*models.Article, error)
 	CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error)
 }
 
 type PostgresRepository struct {
-	db *pgx.Conn
+	db *pgxpool.Pool
 }
 
-func NewRepository(connString string) (*PostgresRepository, error) {
-	db, err := pgx.Connect(context.Background(), connString)
+func NewRepository(ctx context.Context, connString string) (*PostgresRepository, error) {
+	db, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, err
 	}
@@ -41,11 +41,12 @@ func (r *PostgresRepository) SaveSource(ctx context.Context, rssURL string) erro
 }
 
 func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, error) {
-	query := "SELECT * FROM sources"
+	query := "SELECT id, rss_url FROM sources"
 	rows, err := r.db.Query(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("error getting sources %v", err)
+		return nil, fmt.Errorf("error getting sources %w", err)
 	}
+	defer rows.Close()
 
 	sources := make([]models.Source, 0)
 	for rows.Next() {
@@ -57,6 +58,10 @@ func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, e
 		}
 
 		sources = append(sources, source)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	return sources, nil
@@ -73,13 +78,13 @@ func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) 
 	return nil
 }
 
-func (r *PostgresRepository) GetArticle(ctx context.Context, id int) (*models.Article, error) {
-	query := "SELECT * FROM articles WHERE id = $1"
+func (r *PostgresRepository) GetArticle(ctx context.Context, id int64) (*models.Article, error) {
+	query := "SELECT id, source_id, original_url, content, tags, hash, status FROM articles WHERE id = $1"
 
 	row := r.db.QueryRow(ctx, query, id)
 	var a models.Article
 
-	err := row.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Content, &a.Tags)
+	err := row.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Content, &a.Tags, &a.Hash, &a.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +93,7 @@ func (r *PostgresRepository) GetArticle(ctx context.Context, id int) (*models.Ar
 }
 
 func (r *PostgresRepository) CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error) {
-	query := "SELECT EXISTS(SELECT 1 FROM articles WHERE hash = $1"
+	query := "SELECT EXISTS(SELECT 1 FROM articles WHERE hash = $1)"
 	row := r.db.QueryRow(ctx, query, hash)
 	var exists bool
 

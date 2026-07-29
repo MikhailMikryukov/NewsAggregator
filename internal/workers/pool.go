@@ -3,11 +3,12 @@ package workers
 import (
 	"NewsAggregator/internal/parser"
 	"context"
+	"log"
 	"sync"
 )
 
 type Pool struct {
-	workers chan *RssWorker
+	workers []*RssWorker
 	jobs    chan *Job
 	results chan *JobResult
 }
@@ -25,13 +26,13 @@ type JobResult struct {
 
 func New(workersNum int, parser *parser.RSSParser) *Pool {
 	pool := &Pool{
-		workers: make(chan *RssWorker, workersNum),
-		jobs:    make(chan *Job, 20),
-		results: make(chan *JobResult, 20),
+		workers: make([]*RssWorker, workersNum),
+		jobs:    make(chan *Job, workersNum*2),
+		results: make(chan *JobResult, workersNum*2),
 	}
 
 	for i := range workersNum {
-		pool.workers <- newWorker(i, parser)
+		pool.workers[i] = newWorker(i, parser)
 	}
 	return pool
 }
@@ -39,29 +40,34 @@ func New(workersNum int, parser *parser.RSSParser) *Pool {
 func (p *Pool) Start(ctx context.Context) {
 	var wg sync.WaitGroup
 
-	for worker := range p.workers {
+	for i := range p.workers {
 		wg.Add(1)
 		go func(w *RssWorker) {
-			select {
-			case <-ctx.Done():
-				return
-			case job, ok := <-p.jobs:
-				if !ok {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
 					return
-				}
+				case job, ok := <-p.jobs:
+					if !ok {
+						return
+					}
 
-				feed, err := w.Process(ctx, job.SourceURL)
-				if err != nil {
-					return
-				}
+					feed, err := w.Process(ctx, job.SourceURL)
 
-				p.results <- &JobResult{
-					Job:  job,
-					Feed: feed,
-					Err:  err,
+					p.results <- &JobResult{
+						Job:  job,
+						Feed: feed,
+						Err:  err,
+					}
+
+					if err != nil {
+						log.Println(err)
+						return
+					}
 				}
 			}
-		}(worker)
+		}(p.workers[i])
 	}
 
 	go func() {

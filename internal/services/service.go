@@ -21,8 +21,7 @@ func New(repo repository.ISourceArticleRepository, pool *workers.Pool) *Service 
 	}
 }
 
-func (s *Service) SetRssJobs() {
-	ctx := context.Background()
+func (s *Service) SetRssJobs(ctx context.Context) {
 	rssSources, err := s.repo.GetSources(ctx)
 	if err != nil {
 		log.Println(err)

@@ -6,7 +6,7 @@ type Source struct {
 }
 
 type Article struct {
-	ID          int
+	ID          int64
 	SourceID    int
 	OriginalURL string
 	Content     string

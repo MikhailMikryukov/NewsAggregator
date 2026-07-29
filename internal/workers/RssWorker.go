@@ -18,6 +18,5 @@ func newWorker(id int, parser *parser.RSSParser) *RssWorker {
 }
 
 func (w *RssWorker) Process(ctx context.Context, url string) (*parser.RSSFeed, error) {
-	// Воркер просто делегирует парсеру
 	return w.parser.Parse(ctx, url)
 }

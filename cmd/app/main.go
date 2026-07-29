@@ -8,13 +8,19 @@ import (
 	"NewsAggregator/internal/workers"
 	"context"
 	"log"
+	"sync"
 	"time"
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
-	rep, err := repository.NewRepository(cfg.DBConnectionString)
+	ctx := context.TODO()
+
+	rep, err := repository.NewRepository(ctx, cfg.DBConnectionString)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -25,15 +31,23 @@ func main() {
 
 	service := services.New(rep, pool)
 
-	service.SetRssJobs()
+	var wg sync.WaitGroup
 
-	ctx := context.TODO()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		service.SetRssJobs(ctx)
+	}()
+
 	pool.Start(ctx)
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for jobRes := range pool.Results() {
 			service.SaveJobResult(ctx, jobRes)
 		}
 	}()
 
+	wg.Wait()
 }
