@@ -3,6 +3,7 @@ package main
 import (
 	"NewsAggregator/internal/config"
 	"NewsAggregator/internal/parser"
+	"NewsAggregator/internal/rabbitmq"
 	"NewsAggregator/internal/repository"
 	"NewsAggregator/internal/services"
 	"NewsAggregator/internal/workers"
@@ -29,7 +30,42 @@ func main() {
 
 	pool := workers.New(cfg.RssWorkersNum, rssParser)
 
-	service := services.New(rep, pool)
+	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitCfg)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	defer rabbitClient.Close()
+
+	publisher := rabbitmq.NewPublisher(rabbitClient, "news", "application/json")
+
+	err = rabbitClient.ExchangeDeclare(
+		"news",
+		"direct",
+		false,
+		false,
+		false,
+		false,
+		nil)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	err = rabbitClient.DeclareAndBindQueue(
+		"news-waiting",
+		"news",
+		"news",
+		false,
+		false,
+		false,
+		false,
+		nil)
+
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	service := services.New(rep, pool, publisher)
 
 	var wg sync.WaitGroup
 
@@ -45,7 +81,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		for jobRes := range pool.Results() {
-			service.SaveJobResult(ctx, jobRes)
+			service.HandleJobResult(ctx, jobRes)
 		}
 	}()
 

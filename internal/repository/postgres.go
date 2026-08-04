@@ -10,7 +10,7 @@ import (
 type ISourceArticleRepository interface {
 	SaveSource(ctx context.Context, rssURL string) error
 	GetSources(ctx context.Context) ([]models.Source, error)
-	SaveArticle(ctx context.Context, a models.Article) error
+	SaveArticle(ctx context.Context, a models.Article) (int64, error)
 	GetArticle(ctx context.Context, id int64) (*models.Article, error)
 	CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error)
 }
@@ -67,15 +67,16 @@ func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, e
 	return sources, nil
 }
 
-func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) error {
-	query := "INSERT INTO articles (source_id, original_url, content, tags, status) VALUES ($1, $2, $3, $4, $5)"
+func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) (int64, error) {
+	query := "INSERT INTO articles (source_id, original_url, content, tags, status) VALUES ($1, $2, $3, $4, $5) RETURNING id"
 
-	_, err := r.db.Exec(ctx, query, a.SourceID, a.OriginalURL, a.Content, a.Tags, a.Status)
+	var id int64
+	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Content, a.Tags, a.Status).Scan(&id)
 	if err != nil {
-		return err
+		return -1, err
 	}
 
-	return nil
+	return id, nil
 }
 
 func (r *PostgresRepository) GetArticle(ctx context.Context, id int64) (*models.Article, error) {
