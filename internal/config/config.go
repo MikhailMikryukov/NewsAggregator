@@ -21,6 +21,7 @@ type RabbitConfig struct {
 	URL                string
 	ConnectionTimeout  time.Duration
 	Heartbeat          time.Duration
+	ConsumerWorkersNum int
 	ReconnectStrategy  RetryStrategy
 	PublishingStrategy RetryStrategy
 	ConsumingStrategy  RetryStrategy
@@ -48,10 +49,16 @@ func Load() (*Config, error) {
 	retryAttemptsStr := getEnv("RABBIT_RETRY_ATTEMPTS", "0")
 	retryDelayStr := getEnv("RABBIT_RETRY_DELAY", "0")
 	retryBackoffStr := getEnv("RABBIT_RETRY_BACKOFF", "0")
+	rabbitWorkersNumStr := getEnv("RABBIT_CONSUMER_WORKERS_NUM", "0")
 
 	workersNum, err := strconv.Atoi(workersNumStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid RSS_WORKERS_NUM: %w", err)
+	}
+
+	rabbitWorkersNum, err := strconv.Atoi(rabbitWorkersNumStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid RABBIT_CONSUMER_WORKERS_NUM: %w", err)
 	}
 
 	retryAttempts, err := strconv.Atoi(retryAttemptsStr)
@@ -89,6 +96,7 @@ func Load() (*Config, error) {
 		URL:                rabbitAddress,
 		ConnectionTimeout:  time.Duration(rabbitTimeout) * time.Second,
 		Heartbeat:          time.Duration(rabbitHeartbeat) * time.Second,
+		ConsumerWorkersNum: rabbitWorkersNum,
 		ReconnectStrategy:  strategy,
 		PublishingStrategy: strategy,
 		ConsumingStrategy:  strategy,
