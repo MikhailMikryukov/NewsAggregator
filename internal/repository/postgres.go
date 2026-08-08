@@ -13,6 +13,7 @@ type ISourceArticleRepository interface {
 	SaveArticle(ctx context.Context, a models.Article) (int64, error)
 	GetArticle(ctx context.Context, id int64) (*models.Article, error)
 	CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error)
+	UpdateArticle(ctx context.Context, a models.Article) error
 }
 
 type PostgresRepository struct {
@@ -68,10 +69,10 @@ func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, e
 }
 
 func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) (int64, error) {
-	query := "INSERT INTO articles (source_id, original_url, content, tags, status) VALUES ($1, $2, $3, $4, $5) RETURNING id"
+	query := "INSERT INTO articles (source_id, original_url, title, content, tags, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
 
 	var id int64
-	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Content, a.Tags, a.Status).Scan(&id)
+	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Title, a.Content, a.Tags, a.Status).Scan(&id)
 	if err != nil {
 		return -1, err
 	}
@@ -80,12 +81,12 @@ func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) 
 }
 
 func (r *PostgresRepository) GetArticle(ctx context.Context, id int64) (*models.Article, error) {
-	query := "SELECT id, source_id, original_url, content, tags, hash, status FROM articles WHERE id = $1"
+	query := "SELECT id, source_id, original_url, title, content, tags, hash, status FROM articles WHERE id = $1"
 
 	row := r.db.QueryRow(ctx, query, id)
 	var a models.Article
 
-	err := row.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Content, &a.Tags, &a.Hash, &a.Status)
+	err := row.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Title, &a.Content, &a.Tags, &a.Hash, &a.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -104,4 +105,11 @@ func (r *PostgresRepository) CheckArticleByHash(ctx context.Context, hash [16]by
 	}
 
 	return exists, nil
+}
+
+func (r *PostgresRepository) UpdateArticle(ctx context.Context, a models.Article) error {
+	query := "UPDATE articles SET tags, status VALUES ($1, $2) WHERE id = $3"
+	_, err := r.db.Exec(ctx, query, a.Tags, a.Status, a.ID)
+
+	return err
 }

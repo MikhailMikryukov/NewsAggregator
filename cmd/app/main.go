@@ -1,6 +1,7 @@
 package main
 
 import (
+	"NewsAggregator/internal/ai"
 	"NewsAggregator/internal/config"
 	"NewsAggregator/internal/parser"
 	"NewsAggregator/internal/rabbitmq"
@@ -8,7 +9,9 @@ import (
 	"NewsAggregator/internal/services"
 	"NewsAggregator/internal/workers"
 	"context"
+	"github.com/rabbitmq/amqp091-go"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -29,6 +32,8 @@ func main() {
 	rssParser := parser.NewRSSParser(10 * time.Second)
 
 	pool := workers.New(cfg.RssWorkersNum, rssParser)
+
+	aiClient := ai.NewOpenAIClient(cfg.AIConfig)
 
 	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitCfg)
 	if err != nil {
@@ -51,8 +56,9 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
+	queueName := "news-waiting"
 	err = rabbitClient.DeclareAndBindQueue(
-		"news-waiting",
+		queueName,
 		"news",
 		"news",
 		false,
@@ -65,7 +71,27 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	service := services.New(rep, pool, publisher)
+	service := services.New(rep, pool, publisher, aiClient)
+
+	handler := func(ctx context.Context, d amqp091.Delivery) error {
+		msg := d.Body
+
+		id, castErr := strconv.ParseInt(string(msg), 10, 64)
+		if castErr != nil {
+			log.Println(err.Error())
+			return err
+		}
+
+		err = service.HandleArticle(ctx, id)
+		return err
+	}
+
+	consumer := rabbitmq.NewConsumer(rabbitClient, handler, queueName)
+
+	err = consumer.Start(ctx)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 
 	var wg sync.WaitGroup
 
