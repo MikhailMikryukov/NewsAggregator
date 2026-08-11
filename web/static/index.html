@@ -1,0 +1,47 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Лента новостей</title>
+  <!-- подключаем отдельный CSS -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div class="app" id="app">
+  <h1>
+    📰 Лента новостей
+    <small id="totalBadge">загрузка...</small>
+  </h1>
+
+  <!-- Фильтр по тегам -->
+  <div class="filter-section">
+    <span class="filter-label">🏷️ Теги</span>
+    <div class="tag-filter" id="tagFilterContainer">
+      <!-- динамически из данных -->
+    </div>
+    <button class="clear-tags" id="clearTagsBtn" title="Сбросить фильтр">✕ сбросить</button>
+  </div>
+
+  <!-- Лента -->
+  <div id="feedContainer" class="feed">
+    <div class="loader">Загрузка новостей...</div>
+  </div>
+
+  <!-- Пагинация -->
+  <div class="pagination" id="paginationContainer">
+    <button class="page-btn page-arrow" id="prevPage" disabled>← Назад</button>
+    <span id="pageNumbers"></span>
+    <button class="page-btn page-arrow" id="nextPage" disabled>Вперёд →</button>
+  </div>
+
+  <div class="footer-info">
+    <span id="pageInfo">страница 1</span>
+    <span id="itemsInfo">0 новостей</span>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>

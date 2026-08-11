@@ -14,6 +14,9 @@ type ISourceArticleRepository interface {
 	GetArticle(ctx context.Context, id int64) (*models.Article, error)
 	CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error)
 	UpdateArticle(ctx context.Context, a models.Article) error
+	GetCountByTag(ctx context.Context, tag []string) (int, error)
+	GetArticlesByTag(ctx context.Context, tag []string, offset int) ([]models.Article, error)
+	GetAllTags(ctx context.Context) ([]string, error)
 }
 
 type PostgresRepository struct {
@@ -112,4 +115,82 @@ func (r *PostgresRepository) UpdateArticle(ctx context.Context, a models.Article
 	_, err := r.db.Exec(ctx, query, a.Tags, a.Status, a.ID)
 
 	return err
+}
+
+func (r *PostgresRepository) GetCountByTag(ctx context.Context, tag []string) (int, error) {
+	query := "SELECT COUNT(*) FROM articles"
+
+	if len(tag) != 0 {
+		query += " WHERE tags in $1"
+	}
+
+	row := r.db.QueryRow(ctx, query)
+
+	var count int
+	err := row.Scan(&count)
+	if err != nil {
+		return -1, err
+	}
+
+	return count, nil
+}
+
+func (r *PostgresRepository) GetArticlesByTag(ctx context.Context, tag []string, offset int) ([]models.Article, error) {
+	query := "SELECT id, source_id, original_url, title, content, tags, hash, status FROM articles"
+
+	var args []interface{}
+
+	if len(tag) != 0 {
+		query += " WHERE tags in $1 OFFSET $2"
+		args = []interface{}{tag, offset}
+	} else {
+		query += " OFFSET $1"
+		args = []interface{}{offset}
+	}
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []models.Article
+
+	for rows.Next() {
+		var a models.Article
+
+		err = rows.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Title, &a.Content, &a.Tags, &a.Hash, &a.Status)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, a)
+	}
+
+	return result, nil
+}
+
+func (r *PostgresRepository) GetAllTags(ctx context.Context) ([]string, error) {
+	query := "SELECT DISTINCT UNNEST(tags) FROM articles"
+
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []string
+
+	for rows.Next() {
+		var tag string
+
+		err = rows.Scan(&tag)
+		if err != nil {
+			return nil, err
+		}
+
+		result = append(result, tag)
+	}
+
+	return result, nil
 }

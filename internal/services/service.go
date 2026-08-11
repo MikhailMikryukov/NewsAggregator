@@ -2,6 +2,7 @@ package services
 
 import (
 	"NewsAggregator/internal/ai"
+	"NewsAggregator/internal/handlers"
 	"NewsAggregator/internal/models"
 	"NewsAggregator/internal/rabbitmq"
 	"NewsAggregator/internal/repository"
@@ -108,4 +109,28 @@ func (s *Service) HandleArticle(ctx context.Context, id int64) error {
 	}
 
 	return nil
+}
+
+func (s *Service) GetCountByTag(ctx context.Context, tags []string) (int, error) {
+	return s.repo.GetCountByTag(ctx, tags)
+}
+
+func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset int) ([]handlers.Article, error) {
+	articles, err := s.repo.GetArticlesByTag(ctx, tags, offset)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]handlers.Article, len(articles))
+	for i := 0; i < len(articles); i++ {
+		result[i].Title = articles[i].Title
+		result[i].Tags = articles[i].Tags
+		result[i].Content = articles[i].Content
+	}
+
+	return result, nil
+}
+
+func (s *Service) GetAllTags(ctx context.Context) ([]string, error) {
+	return s.repo.GetAllTags(ctx)
 }
