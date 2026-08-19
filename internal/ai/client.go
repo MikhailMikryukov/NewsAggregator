@@ -1,15 +1,23 @@
 package ai
 
 import (
-	"NewsAggregator/internal/config"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 	"strings"
 	"time"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+
+	"github.com/MikhailMikryukov/NewsAggregator/internal/config"
+)
+
+var (
+	ErrDecryptionEmpty = errors.New("description cannot be empty")
+	ErrEmptyResponseAI = errors.New("empty response from OpenAI")
+	ErrJSONNotFound    = errors.New("JSON response not found")
 )
 
 type TagRequest struct {
@@ -53,7 +61,6 @@ func NewOpenAIClient(cfg config.OpenAIConfig) *OpenAIClient {
 }
 
 func (c *OpenAIClient) GenerateTags(ctx context.Context, req TagRequest) (*TagResponse, error) {
-
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -64,7 +71,7 @@ func (c *OpenAIClient) GenerateTags(ctx context.Context, req TagRequest) (*TagRe
 	defer cancel()
 
 	if req.Description == "" {
-		return nil, errors.New("description cannot be empty")
+		return nil, ErrDecryptionEmpty
 	}
 
 	maxTags := req.MaxTags
@@ -89,7 +96,7 @@ func (c *OpenAIClient) GenerateTags(ctx context.Context, req TagRequest) (*TagRe
 	}
 
 	if len(chatCompletion.Choices) == 0 {
-		return nil, errors.New("empty response from OpenAI")
+		return nil, ErrEmptyResponseAI
 	}
 
 	return c.parseResponse(chatCompletion.Choices[0].Message.Content)
@@ -111,15 +118,15 @@ func (c *OpenAIClient) buildPrompt(req TagRequest, maxTags int) string {
 	var prompt strings.Builder
 
 	prompt.WriteString("Проанализируй описание статьи и выдели ключевые теги.\n")
-	prompt.WriteString(fmt.Sprintf("Максимальное количество тегов: %d\n", maxTags))
+	fmt.Fprintf(&prompt, "Максимальное количество тегов: %d\n", maxTags)
 	prompt.WriteString("Теги должны быть на русском языке, отражать суть статьи.\n")
 	prompt.WriteString("Теги должны быть разделены запятыми.\n\n")
 
 	if req.Title != "" {
-		prompt.WriteString(fmt.Sprintf("Заголовок статьи: %s\n", req.Title))
+		fmt.Fprintf(&prompt, "Заголовок статьи: %s\n", req.Title)
 	}
 
-	prompt.WriteString(fmt.Sprintf("Описание: %s\n\n", req.Description))
+	fmt.Fprintf(&prompt, "Описание: %s\n\n", req.Description)
 	prompt.WriteString(`Ответ дай в формате JSON:
 {"tags": ["тег1", "тег2", "тег3"]}`)
 
@@ -133,14 +140,13 @@ func (c *OpenAIClient) getSystemPrompt() string {
 }
 
 func (c *OpenAIClient) parseResponse(content string) (*TagResponse, error) {
-
 	content = strings.TrimSpace(content)
 
 	start := strings.Index(content, "{")
 	end := strings.LastIndex(content, "}")
 
 	if start == -1 || end == -1 {
-		return nil, fmt.Errorf("JSON response not found: %s", content)
+		return nil, fmt.Errorf("%w: %s", ErrJSONNotFound, content)
 	}
 
 	jsonStr := content[start : end+1]

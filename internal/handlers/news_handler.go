@@ -3,12 +3,16 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
-const itemsPerPage = 10
+const (
+	itemsPerPage = 10
+	StatusError  = "error"
+)
 
 type NewsService interface {
 	GetCountByTag(ctx context.Context, tags []string) (int, error)
@@ -44,18 +48,18 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	page, err := strconv.Atoi(pageStr)
 	if err != nil {
 		h.writeJSON(w, http.StatusBadRequest, Response{
-			Status:  "error",
+			Status:  StatusError,
 			Message: "invalid page num",
 		})
 		return
 	}
 
-	ctx := context.TODO()
+	ctx := r.Context()
 
 	allArticlesCount, err := h.s.GetCountByTag(ctx, tags)
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
-			Status:  "error",
+			Status:  StatusError,
 			Message: "",
 		})
 		return
@@ -70,7 +74,7 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	articles, err := h.s.GetArticlesByTag(ctx, tags, offset)
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
-			Status:  "error",
+			Status:  StatusError,
 			Message: "",
 		})
 		return
@@ -79,7 +83,7 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	allTags, err := h.s.GetAllTags(ctx)
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
-			Status:  "error",
+			Status:  StatusError,
 			Message: "",
 		})
 		return
@@ -100,5 +104,7 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 func (h *NewsHandler) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Println(err)
+	}
 }

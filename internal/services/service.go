@@ -1,37 +1,40 @@
 package services
 
 import (
-	"NewsAggregator/internal/ai"
-	"NewsAggregator/internal/handlers"
-	"NewsAggregator/internal/models"
-	"NewsAggregator/internal/rabbitmq"
-	"NewsAggregator/internal/repository"
-	"NewsAggregator/internal/workers"
 	"context"
 	"crypto/md5"
 	"fmt"
 	"log"
 	"strconv"
+
+	"github.com/MikhailMikryukov/NewsAggregator/internal/ai"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/models"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/rabbitmq"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/repository"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/workers"
 )
 
 type Service struct {
-	repo      repository.ISourceArticleRepository
-	pool      *workers.Pool
-	publisher *rabbitmq.Publisher
-	ai        *ai.OpenAIClient
+	articleRepo repository.ArticleRepository
+	sourceRepo  repository.SourceRepository
+	pool        *workers.Pool
+	publisher   *rabbitmq.Publisher
+	ai          *ai.OpenAIClient
 }
 
-func New(repo repository.ISourceArticleRepository, pool *workers.Pool, publisher *rabbitmq.Publisher, ai *ai.OpenAIClient) *Service {
+func New(ar repository.ArticleRepository, sr repository.SourceRepository, pool *workers.Pool, publisher *rabbitmq.Publisher, ai *ai.OpenAIClient) *Service {
 	return &Service{
-		repo:      repo,
-		pool:      pool,
-		publisher: publisher,
-		ai:        ai,
+		articleRepo: ar,
+		sourceRepo:  sr,
+		pool:        pool,
+		publisher:   publisher,
+		ai:          ai,
 	}
 }
 
 func (s *Service) SetRssJobs(ctx context.Context) {
-	rssSources, err := s.repo.GetSources(ctx)
+	rssSources, err := s.sourceRepo.GetSources(ctx)
 	if err != nil {
 		log.Println(err)
 		return
@@ -40,14 +43,13 @@ func (s *Service) SetRssJobs(ctx context.Context) {
 	for _, source := range rssSources {
 		s.pool.Submit(source.ID, source.RssURL)
 	}
-
 }
 
 func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
 	for _, item := range res.Feed.Channel.Items {
 		hash := md5.Sum([]byte(item.Link))
 
-		exists, err := s.repo.CheckArticleByHash(ctx, hash)
+		exists, err := s.articleRepo.CheckArticleByHash(ctx, hash)
 		if err != nil {
 			log.Println(err)
 			return
@@ -59,11 +61,10 @@ func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
 				OriginalURL: item.Link,
 				Content:     item.Description,
 				Tags:        nil,
-				Hash:        hash,
 				Status:      "pending",
 			}
 
-			id, err := s.repo.SaveArticle(ctx, article)
+			id, err := s.articleRepo.SaveArticle(ctx, article)
 			if err != nil {
 				log.Println(err)
 				return
@@ -76,11 +77,10 @@ func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
 			}
 		}
 	}
-
 }
 
 func (s *Service) HandleArticle(ctx context.Context, id int64) error {
-	article, err := s.repo.GetArticle(ctx, id)
+	article, err := s.articleRepo.GetArticle(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (s *Service) HandleArticle(ctx context.Context, id int64) error {
 	article.Tags = tagResp.Tags
 	article.Status = "proceed"
 
-	err = s.repo.UpdateArticle(ctx, *article)
+	err = s.articleRepo.UpdateArticle(ctx, *article)
 	if err != nil {
 		return fmt.Errorf("updating article error: %w", err)
 	}
@@ -112,11 +112,11 @@ func (s *Service) HandleArticle(ctx context.Context, id int64) error {
 }
 
 func (s *Service) GetCountByTag(ctx context.Context, tags []string) (int, error) {
-	return s.repo.GetCountByTag(ctx, tags)
+	return s.articleRepo.GetCountByTag(ctx, tags)
 }
 
 func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset int) ([]handlers.Article, error) {
-	articles, err := s.repo.GetArticlesByTag(ctx, tags, offset)
+	articles, err := s.articleRepo.GetArticlesByTag(ctx, tags, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -132,5 +132,5 @@ func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset in
 }
 
 func (s *Service) GetAllTags(ctx context.Context) ([]string, error) {
-	return s.repo.GetAllTags(ctx)
+	return s.articleRepo.GetAllTags(ctx)
 }

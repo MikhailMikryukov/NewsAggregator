@@ -1,21 +1,22 @@
 package workers
 
 import (
-	"NewsAggregator/internal/parser"
 	"context"
 	"log"
 	"sync"
+
+	"github.com/MikhailMikryukov/NewsAggregator/internal/parser"
 )
 
 type Pool struct {
-	workers []*RssWorker
 	jobs    chan *Job
 	results chan *JobResult
+	workers []*RssWorker
 }
 
 type Job struct {
-	SourceId  int
 	SourceURL string
+	SourceId  int
 }
 
 type JobResult struct {

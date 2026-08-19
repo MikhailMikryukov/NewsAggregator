@@ -3,10 +3,18 @@ package parser
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
+)
+
+var (
+	ErrTooLargeResponse = errors.New("response too large")
+	ErrHTTPStatus       = errors.New("HTTP status error")
+	ErrParsing          = errors.New("parsing data error")
 )
 
 type RSSFeed struct {
@@ -21,11 +29,11 @@ type Channel struct {
 }
 
 type Item struct {
+	ParsedPubDate *time.Time `xml:"-"`
 	Title         string     `xml:"title"`
 	Link          string     `xml:"link"`
 	Description   string     `xml:"description"`
 	PubDate       string     `xml:"pubDate"`
-	ParsedPubDate *time.Time `xml:"-"` // Не парсится из XML
 }
 
 type RSSParser struct {
@@ -62,7 +70,7 @@ func (p *RSSParser) Parse(ctx context.Context, url string) (*RSSFeed, error) {
 }
 
 func (p *RSSParser) fetchFeed(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("request creation error: %w", err)
 	}
@@ -72,10 +80,14 @@ func (p *RSSParser) fetchFeed(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request error: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP status error: %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: %d", ErrHTTPStatus, resp.StatusCode)
 	}
 
 	return p.readBody(resp.Body)
@@ -91,7 +103,7 @@ func (p *RSSParser) readBody(body io.ReadCloser) ([]byte, error) {
 	}
 
 	if len(data) == maxSize {
-		return nil, fmt.Errorf("response too large")
+		return nil, fmt.Errorf("%w", ErrTooLargeResponse)
 	}
 
 	return data, nil
@@ -138,5 +150,5 @@ func parseRSSDate(dateStr string) (*time.Time, error) {
 			return &t, nil
 		}
 	}
-	return nil, fmt.Errorf("parsing data error '%s'", dateStr)
+	return nil, fmt.Errorf("%w '%s'", ErrParsing, dateStr)
 }

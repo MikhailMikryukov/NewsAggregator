@@ -2,19 +2,24 @@ package rabbitmq
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/rabbitmq/amqp091-go"
 	"log"
 	"sync"
+
+	"github.com/rabbitmq/amqp091-go"
 )
+
+var ErrConsumerStopped = errors.New("consumer stopped")
 
 type MessageHandler func(context.Context, amqp091.Delivery) error
 
 type Consumer struct {
 	client     *RabbitClient
 	handler    MessageHandler
-	workersNum int
+	done       chan struct{}
 	queue      string
+	workersNum int
 }
 
 func NewConsumer(c *RabbitClient, h MessageHandler, queue string) *Consumer {
@@ -32,7 +37,7 @@ func (c *Consumer) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-c.client.Context().Done():
-			return fmt.Errorf("client context done")
+			return c.client.Context().Err()
 		default:
 		}
 
@@ -49,7 +54,11 @@ func (c *Consumer) consume(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to get channel: %w", err)
 	}
-	defer ch.Close()
+	defer func() {
+		if chErr := ch.Close(); err != nil {
+			log.Printf("error closing channel %v", chErr)
+		}
+	}()
 
 	msg, err := ch.Consume(
 		c.queue,
@@ -76,19 +85,24 @@ func (c *Consumer) consume(ctx context.Context) error {
 		}()
 	}
 
+	go func() {
+		wg.Wait()
+		close(c.done)
+	}()
+
 	select {
 	case <-ctx.Done():
 		cancel()
-		wg.Wait()
+		<-c.done
 		return ctx.Err()
+
 	case <-c.client.Context().Done():
 		cancel()
-		wg.Wait()
-		return fmt.Errorf("client context done")
-	default:
-		wg.Wait()
-		cancel()
-		return fmt.Errorf("consumer workers stopped")
+		<-c.done
+		return c.client.Context().Err()
+
+	case <-c.done:
+		return ErrConsumerStopped
 	}
 }
 
@@ -103,7 +117,6 @@ func (c *Consumer) worker(ctx context.Context, msgs <-chan amqp091.Delivery) {
 			}
 			c.processDelivery(ctx, msg)
 		}
-
 	}
 }
 
@@ -111,7 +124,7 @@ func (c *Consumer) processDelivery(ctx context.Context, msg amqp091.Delivery) {
 	handleErr := c.handler(ctx, msg)
 
 	if handleErr != nil {
-		nackErr := msg.Nack(false, true)
+		nackErr := msg.Nack(false, false)
 		if nackErr != nil {
 			log.Printf("failed to send NACK: %v", nackErr)
 		}
@@ -121,4 +134,67 @@ func (c *Consumer) processDelivery(ctx context.Context, msg amqp091.Delivery) {
 			log.Printf("failed to send ACK: %v", ackErr)
 		}
 	}
+}
+
+func (c *Consumer) Setup() error {
+	dlqArgs := amqp091.Table{
+		"x-dead-letter-exchange":    "dlx",
+		"x-dead-letter-routing-key": "dlq_key",
+	}
+
+	err := c.client.ExchangeDeclare(
+		"news",
+		"direct",
+		false,
+		false,
+		false,
+		false,
+		nil)
+
+	if err != nil {
+		return err
+	}
+
+	err = c.client.DeclareAndBindQueue(
+		c.queue,
+		"news",
+		"news",
+		false,
+		false,
+		false,
+		false,
+		dlqArgs)
+
+	if err != nil {
+		return err
+	}
+
+	err = c.client.ExchangeDeclare(
+		"dlx",
+		"direct",
+		false,
+		false,
+		false,
+		false,
+		nil)
+
+	if err != nil {
+		return err
+	}
+
+	err = c.client.DeclareAndBindQueue(
+		"dlq",
+		"dlq_key",
+		"dlx",
+		false,
+		false,
+		false,
+		false,
+		nil)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

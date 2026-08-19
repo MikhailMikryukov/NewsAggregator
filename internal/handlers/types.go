@@ -7,11 +7,11 @@ type Response struct {
 
 type FeedResponse struct {
 	Articles    []Article `json:"articles"`
+	AllTags     []string  `json:"allTags"`
+	SelectedTag []string  `json:"selectedTag"`
 	TotalPages  int       `json:"totalPages"`
 	TotalItems  int       `json:"totalItems"`
 	CurrentPage int       `json:"currentPage"`
-	AllTags     []string  `json:"allTags"`
-	SelectedTag []string  `json:"selectedTag"`
 }
 
 type Article struct {

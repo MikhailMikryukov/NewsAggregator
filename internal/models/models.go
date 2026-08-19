@@ -1,17 +1,16 @@
 package models
 
 type Source struct {
-	ID     int
 	RssURL string
+	ID     int
 }
 
 type Article struct {
-	ID          int64
-	SourceID    int
 	OriginalURL string
 	Title       string
 	Content     string
-	Tags        []string
-	Hash        [16]byte
 	Status      string
+	Tags        []string
+	ID          int64
+	SourceID    int
 }

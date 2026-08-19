@@ -1,9 +1,10 @@
 package rabbitmq
 
 import (
-	"fmt"
-	"github.com/rabbitmq/amqp091-go"
+	"log"
 	"time"
+
+	"github.com/rabbitmq/amqp091-go"
 )
 
 type Publisher struct {
@@ -25,7 +26,11 @@ func (p *Publisher) Publish(routingKey string, body []byte) error {
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
+	defer func() {
+		if chErr := ch.Close(); err != nil {
+			log.Printf("error closing channel %v", chErr)
+		}
+	}()
 
 	msg := amqp091.Publishing{
 		ContentType: p.contentType,
@@ -37,7 +42,6 @@ func (p *Publisher) Publish(routingKey string, body []byte) error {
 	backoff := p.client.cfg.ReconnectStrategy.Backoff
 
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
-
 		err = ch.Publish(p.exchange, routingKey, true, false, msg)
 		if err == nil {
 			return nil
@@ -45,11 +49,10 @@ func (p *Publisher) Publish(routingKey string, body []byte) error {
 
 		select {
 		case <-p.client.ctx.Done():
-			return fmt.Errorf("context done")
+			return p.client.ctx.Err()
 		case <-time.After(delay):
 		}
 		delay = time.Duration(float64(delay) * backoff)
-
 	}
 
 	return err

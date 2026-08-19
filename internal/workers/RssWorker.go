@@ -1,19 +1,20 @@
 package workers
 
 import (
-	"NewsAggregator/internal/parser"
 	"context"
+
+	"github.com/MikhailMikryukov/NewsAggregator/internal/parser"
 )
 
 type RssWorker struct {
-	id     int
 	parser *parser.RSSParser
+	id     int
 }
 
-func newWorker(id int, parser *parser.RSSParser) *RssWorker {
+func newWorker(id int, p *parser.RSSParser) *RssWorker {
 	return &RssWorker{
 		id:     id,
-		parser: parser,
+		parser: p,
 	}
 }
 

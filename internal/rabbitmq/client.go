@@ -1,14 +1,18 @@
 package rabbitmq
 
 import (
-	"NewsAggregator/internal/config"
 	"context"
+	"errors"
 	"fmt"
-	"github.com/rabbitmq/amqp091-go"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/rabbitmq/amqp091-go"
+
+	"github.com/MikhailMikryukov/NewsAggregator/internal/config"
 )
 
 const (
@@ -16,19 +20,25 @@ const (
 	defaultHeartBeat         = 10 * time.Second
 )
 
+var (
+	ErrEmptyURL       = errors.New("URL cannot be empty")
+	ErrClosedClient   = errors.New("rabbitmq client closed")
+	ErrGettingChannel = errors.New("getting channel error")
+)
+
 type RabbitClient struct {
-	cfg    config.RabbitConfig
-	conn   *amqp091.Connection
-	mu     sync.RWMutex
-	notify chan *amqp091.Error
 	ctx    context.Context
+	conn   *amqp091.Connection
+	notify chan *amqp091.Error
 	cancel context.CancelFunc
+	cfg    config.RabbitConfig
+	mu     sync.RWMutex
 	closed atomic.Bool
 }
 
 func NewClient(cfg config.RabbitConfig) (*RabbitClient, error) {
 	if cfg.URL == "" {
-		return nil, fmt.Errorf("URL cannot be empty")
+		return nil, fmt.Errorf("%w", ErrEmptyURL)
 	}
 
 	if cfg.ConnectionTimeout == 0 {
@@ -65,9 +75,7 @@ func (c *RabbitClient) connect() error {
 	amqpConfig := amqp091.Config{
 		Heartbeat: c.cfg.Heartbeat,
 		Locale:    "en_US",
-		Dial: func(network, addr string) (net.Conn, error) {
-			return dialer.Dial(network, addr)
-		},
+		Dial:      dialer.Dial,
 	}
 
 	conn, err := amqp091.DialConfig(c.cfg.URL, amqpConfig)
@@ -99,7 +107,7 @@ func (c *RabbitClient) watchConnection() {
 	case <-c.ctx.Done():
 		return
 	case err := <-c.notify:
-		if err != nil && c.closed.Load() {
+		if err != nil && !c.closed.Load() {
 			go c.reconnectLoop()
 		}
 	}
@@ -125,7 +133,7 @@ func (c *RabbitClient) reconnectLoop() {
 
 func (c *RabbitClient) GetChannel() (*amqp091.Channel, error) {
 	if c.closed.Load() {
-		return nil, fmt.Errorf("rabbitmq client closed")
+		return nil, fmt.Errorf("%w", ErrClosedClient)
 	}
 
 	c.mu.RLock()
@@ -133,7 +141,7 @@ func (c *RabbitClient) GetChannel() (*amqp091.Channel, error) {
 	c.mu.RUnlock()
 
 	if conn == nil {
-		return nil, fmt.Errorf("channel error")
+		return nil, fmt.Errorf("%w", ErrGettingChannel)
 	}
 
 	return conn.Channel()
@@ -163,13 +171,16 @@ func (c *RabbitClient) ExchangeDeclare(
 	name, kind string,
 	durable, autoDelete, internal, noWait bool,
 	args amqp091.Table) error {
-
 	ch, err := c.conn.Channel()
 	if err != nil {
 		return err
 	}
 
-	defer ch.Close()
+	defer func() {
+		if err := ch.Close(); err != nil {
+			log.Printf("error closing channel %v", err)
+		}
+	}()
 
 	return ch.ExchangeDeclare(name, kind, durable, autoDelete, internal, noWait, args)
 }
@@ -178,13 +189,16 @@ func (c *RabbitClient) DeclareAndBindQueue(
 	name, routingKey, exchangeName string,
 	durable, autoDelete, exclusive, noWait bool,
 	args amqp091.Table) error {
-
 	ch, err := c.conn.Channel()
 	if err != nil {
 		return err
 	}
 
-	defer ch.Close()
+	defer func() {
+		if chErr := ch.Close(); err != nil {
+			log.Printf("error closing channel %v", chErr)
+		}
+	}()
 
 	_, err = ch.QueueDeclare(name, durable, autoDelete, exclusive, noWait, args)
 	if err != nil {

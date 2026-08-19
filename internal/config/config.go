@@ -1,21 +1,29 @@
 package config
 
 import (
+	"errors"
 	"fmt"
-	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
+)
+
+var (
+	ErrConfigValidation       = errors.New("config validation failed")
+	ErrRabbitConfigValidation = errors.New("rabbit config validation failed")
+	ErrAIConfigValidation     = errors.New("open ai config validation failed")
 )
 
 type Config struct {
 	Port               string
 	DBConnectionString string
-	RssWorkersNum      int
-	RabbitCfg          RabbitConfig
 	AIConfig           OpenAIConfig
+	RabbitCfg          RabbitConfig
+	RssWorkersNum      int
 }
 
 type RabbitConfig struct {
@@ -43,7 +51,6 @@ type RetryStrategy struct {
 }
 
 func Load() (*Config, error) {
-
 	err := godotenv.Load()
 	if err != nil {
 		log.Println("Warning: .env file not found")
@@ -126,19 +133,19 @@ func (c *OpenAIConfig) validate() error {
 	var errs []string
 
 	if c.APIKey == "" {
-		errs = append(errs, fmt.Sprintf("OPEN_API_KEY cannot be empty"))
+		errs = append(errs, "OPEN_API_KEY cannot be empty")
 	}
 
 	if c.Temperature < 0 || c.Temperature > 2 {
-		errs = append(errs, fmt.Sprintf("OPENAI_TEMPERATURE must be in 0 - 2.0 range"))
+		errs = append(errs, "OPENAI_TEMPERATURE must be in 0 - 2.0 range")
 	}
 
 	if c.Timeout < 0 {
-		errs = append(errs, fmt.Sprintf("OPENAI_TIMEOUT cannot be negative"))
+		errs = append(errs, "OPENAI_TIMEOUT cannot be negative")
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("open ai config validation failed:\n%s", strings.Join(errs, "\n"))
+		return fmt.Errorf("%w :\n%s", ErrAIConfigValidation, strings.Join(errs, "\n"))
 	}
 
 	return nil
@@ -215,19 +222,19 @@ func (c *RabbitConfig) validate() error {
 	}
 
 	if c.ConnectionTimeout < 0 {
-		errs = append(errs, fmt.Sprintf("RABBIT_TIMEOUT cannot be negative"))
+		errs = append(errs, "RABBIT_TIMEOUT cannot be negative")
 	}
 
 	if c.Heartbeat < 0 {
-		errs = append(errs, fmt.Sprintf("RABBIT_HEARTBEAT cannot be negative"))
+		errs = append(errs, "RABBIT_HEARTBEAT cannot be negative")
 	}
 
 	if c.ConsumerWorkersNum < 1 {
-		errs = append(errs, fmt.Sprintf("RABBIT_CONSUMER_WORKERS_NUM cannot be less than 1"))
+		errs = append(errs, "RABBIT_CONSUMER_WORKERS_NUM cannot be less than 1")
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("rabbit config validation failed:\n%s", strings.Join(errs, "\n"))
+		return fmt.Errorf("%w :\n%s", ErrRabbitConfigValidation, strings.Join(errs, "\n"))
 	}
 
 	return nil
@@ -260,7 +267,7 @@ func (c *Config) validate() error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("config validation failed:\n%s", strings.Join(errs, "\n"))
+		return fmt.Errorf("%w :\n%s", ErrConfigValidation, strings.Join(errs, "\n"))
 	}
 
 	return nil
