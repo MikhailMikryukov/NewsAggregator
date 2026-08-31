@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yandex-cloud/go-sdk/v2/pkg/endpoints"
 	"github.com/yandex-cloud/go-sdk/v2/pkg/iamkey"
 	"io"
 	"strings"
@@ -69,12 +70,15 @@ func NewYandexAIClient(ctx context.Context, cfg config.AIConfig) (*YandexAIClien
 		return nil, fmt.Errorf("error creating credentials: %w", err)
 	}
 
+	resolver := endpoints.NewPrefixEndpointsResolver(endpoints.PrefixToEndpoint{
+		"/yandex.cloud.ai": endpoints.NewEndpointParams("ai.api.cloud.yandex.net"),
+		"yandex.cloud.iam": endpoints.NewEndpointParams("iam.api.cloud.yandex.net"),
+	})
+
 	sdk, err := ycsdk.Build(ctx,
 		options.WithCredentials(creds),
+		options.WithEndpointsResolver(resolver),
 	)
-
-	//sdk, err := ycsdk.Build(ctx,
-	//	options.WithCredentials(credentials.IAMToken(cfg.YandexIAMToken)))
 
 	if err != nil {
 		return nil, fmt.Errorf("error building sdk: %w", err)
@@ -96,12 +100,12 @@ func (c *YandexAIClient) GenerateTags(ctx context.Context, req TagRequest) (*Tag
 	ctxTimeout, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
 
-	grpcConn, err := c.sdk.GetConnection(ctxTimeout, foundation_models.TextGenerationService_Completion_FullMethodName)
+	conn, err := c.sdk.GetConnection(ctxTimeout, foundation_models.TextGenerationService_Completion_FullMethodName)
 	if err != nil {
 		return nil, fmt.Errorf("getting connection error: %w", err)
 	}
 
-	client := foundation_models.NewTextGenerationServiceClient(grpcConn)
+	client := foundation_models.NewTextGenerationServiceClient(conn)
 
 	modelURI := fmt.Sprintf("gpt://%s/%s", c.cfg.YandexFolderID, c.cfg.YandexModel)
 

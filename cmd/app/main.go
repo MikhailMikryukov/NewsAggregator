@@ -6,7 +6,6 @@ import (
 	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -22,10 +21,6 @@ import (
 )
 
 func main() {
-	// Явно указываем stderr
-	log.SetOutput(os.Stderr)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("=== ЛОГГЕР ЗАПУЩЕН ===")
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
