@@ -5,20 +5,30 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yandex-cloud/go-sdk/v2/pkg/iamkey"
+	"io"
 	"strings"
 	"time"
 
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	v1 "github.com/yandex-cloud/go-genproto/yandex/cloud/ai/foundation_models/v1"
+	foundation_models "github.com/yandex-cloud/go-genproto/yandex/cloud/ai/foundation_models/v1/text_generation"
+	"github.com/yandex-cloud/go-sdk/v2"
+	"github.com/yandex-cloud/go-sdk/v2/credentials"
+	"github.com/yandex-cloud/go-sdk/v2/pkg/options"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/MikhailMikryukov/NewsAggregator/internal/config"
 )
 
 var (
-	ErrDecryptionEmpty = errors.New("description cannot be empty")
-	ErrEmptyResponseAI = errors.New("empty response from OpenAI")
+	ErrEmptyResponseAI = errors.New("empty response from AI")
 	ErrJSONNotFound    = errors.New("JSON response not found")
 )
+
+type Tagger interface {
+	GenerateTags(ctx context.Context, req TagRequest) (*TagResponse, error)
+	HealthCheck(ctx context.Context) error
+}
 
 type TagRequest struct {
 	Description string `json:"description"`
@@ -30,18 +40,15 @@ type TagResponse struct {
 	Tags []string `json:"tags"`
 }
 
-type OpenAIClient struct {
-	client openai.Client
-	config config.OpenAIConfig
+type YandexAIClient struct {
+	sdk *ycsdk.SDK
+	cfg config.AIConfig
 }
 
-func NewOpenAIClient(cfg config.OpenAIConfig) *OpenAIClient {
-	if cfg.Model == "" {
-		cfg.Model = openai.ChatModelGPT4oMini
-	}
+func NewYandexAIClient(ctx context.Context, cfg config.AIConfig) (*YandexAIClient, error) {
 
 	if cfg.Temperature == 0 {
-		cfg.Temperature = 0.7
+		cfg.Temperature = 0.1
 	}
 
 	if cfg.MaxTokens == 0 {
@@ -52,69 +59,110 @@ func NewOpenAIClient(cfg config.OpenAIConfig) *OpenAIClient {
 		cfg.Timeout = 30 * time.Second
 	}
 
-	return &OpenAIClient{
-		client: openai.NewClient(
-			option.WithAPIKey(cfg.APIKey),
-		),
-		config: cfg,
+	key, err := iamkey.ReadFromJSONFile(cfg.YandexKeyFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading key file: %w", err)
 	}
+
+	creds, err := credentials.ServiceAccountKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("error creating credentials: %w", err)
+	}
+
+	sdk, err := ycsdk.Build(ctx,
+		options.WithCredentials(creds),
+	)
+
+	//sdk, err := ycsdk.Build(ctx,
+	//	options.WithCredentials(credentials.IAMToken(cfg.YandexIAMToken)))
+
+	if err != nil {
+		return nil, fmt.Errorf("error building sdk: %w", err)
+	}
+
+	return &YandexAIClient{
+		sdk: sdk,
+		cfg: cfg,
+	}, nil
 }
 
-func (c *OpenAIClient) GenerateTags(ctx context.Context, req TagRequest) (*TagResponse, error) {
+func (c *YandexAIClient) GenerateTags(ctx context.Context, req TagRequest) (*TagResponse, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	ctxTimeout, cancel := context.WithTimeout(ctx, c.config.Timeout)
+	ctxTimeout, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
 	defer cancel()
 
-	if req.Description == "" {
-		return nil, ErrDecryptionEmpty
-	}
-
-	maxTags := req.MaxTags
-	if maxTags == 0 {
-		maxTags = 5
-	}
-
-	prompt := c.buildPrompt(req, maxTags)
-
-	chatCompletion, err := c.client.Chat.Completions.New(ctxTimeout, openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.SystemMessage(c.getSystemPrompt()),
-			openai.UserMessage(prompt),
-		},
-		Model:       c.config.Model,
-		Temperature: openai.Float(c.config.Temperature),
-		MaxTokens:   openai.Int(c.config.MaxTokens),
-	})
-
+	grpcConn, err := c.sdk.GetConnection(ctxTimeout, foundation_models.TextGenerationService_Completion_FullMethodName)
 	if err != nil {
-		return nil, fmt.Errorf("OpenAI request error: %w", err)
+		return nil, fmt.Errorf("getting connection error: %w", err)
 	}
 
-	if len(chatCompletion.Choices) == 0 {
+	client := foundation_models.NewTextGenerationServiceClient(grpcConn)
+
+	modelURI := fmt.Sprintf("gpt://%s/%s", c.cfg.YandexFolderID, c.cfg.YandexModel)
+
+	var systemMsg v1.Message
+	systemMsg.SetRole("system")
+	systemMsg.SetText(c.getSystemPrompt())
+
+	var userMsg v1.Message
+	userMsg.SetRole("user")
+	userMsg.SetText(c.buildPrompt(req, c.cfg.MaxTags))
+
+	cr := &foundation_models.CompletionRequest{
+		ModelUri: modelURI,
+		CompletionOptions: &v1.CompletionOptions{
+			Stream:      false,
+			Temperature: wrapperspb.Double(c.cfg.Temperature),
+			MaxTokens:   wrapperspb.Int64(c.cfg.MaxTokens),
+		},
+		Messages: []*v1.Message{
+			&systemMsg,
+			&userMsg,
+		},
+	}
+
+	stream, err := client.Completion(ctxTimeout, cr)
+	if err != nil {
+		return nil, fmt.Errorf("error stream creating: %w", err)
+	}
+
+	rec, err := stream.Recv()
+	if err != nil || len(rec.GetAlternatives()) == 0 {
+		if errors.Is(err, io.EOF) {
+			return nil, ErrEmptyResponseAI
+		}
+		return nil, fmt.Errorf("error getting response from AI: %w", err)
+	}
+
+	if len(rec.GetAlternatives()) == 0 {
 		return nil, ErrEmptyResponseAI
 	}
 
-	return c.parseResponse(chatCompletion.Choices[0].Message.Content)
+	content := rec.GetAlternatives()[0].GetMessage().GetText()
+
+	return c.parseResponse(content)
 }
 
-func (c *OpenAIClient) HealthCheck(ctx context.Context) error {
-	_, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage("ping"),
-		},
-		Model:     c.config.Model,
-		MaxTokens: openai.Int(5),
-	})
+func (c *YandexAIClient) HealthCheck(ctx context.Context) error {
+	testReq := TagRequest{
+		Description: "Тестовое описание для проверки работоспособности",
+		MaxTags:     1,
+	}
 
-	return err
+	_, err := c.GenerateTags(ctx, testReq)
+	if err != nil {
+		return fmt.Errorf("health check failed")
+	}
+
+	return nil
 }
 
-func (c *OpenAIClient) buildPrompt(req TagRequest, maxTags int) string {
+func (c *YandexAIClient) buildPrompt(req TagRequest, maxTags int) string {
 	var prompt strings.Builder
 
 	prompt.WriteString("Проанализируй описание статьи и выдели ключевые теги.\n")
@@ -133,13 +181,13 @@ func (c *OpenAIClient) buildPrompt(req TagRequest, maxTags int) string {
 	return prompt.String()
 }
 
-func (c *OpenAIClient) getSystemPrompt() string {
+func (c *YandexAIClient) getSystemPrompt() string {
 	return "Ты - профессиональный контент-менеджер с 10-летним опытом. " +
 		"Ты умеешь точно выделять ключевые темы из текста. " +
 		"Твои ответы всегда структурированы и точны."
 }
 
-func (c *OpenAIClient) parseResponse(content string) (*TagResponse, error) {
+func (c *YandexAIClient) parseResponse(content string) (*TagResponse, error) {
 	content = strings.TrimSpace(content)
 
 	start := strings.Index(content, "{")

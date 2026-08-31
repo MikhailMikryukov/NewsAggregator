@@ -20,10 +20,10 @@ type Service struct {
 	sourceRepo  repository.SourceRepository
 	pool        *workers.Pool
 	publisher   *rabbitmq.Publisher
-	ai          *ai.OpenAIClient
+	ai          ai.Tagger
 }
 
-func New(ar repository.ArticleRepository, sr repository.SourceRepository, pool *workers.Pool, publisher *rabbitmq.Publisher, ai *ai.OpenAIClient) *Service {
+func New(ar repository.ArticleRepository, sr repository.SourceRepository, pool *workers.Pool, publisher *rabbitmq.Publisher, ai ai.Tagger) *Service {
 	return &Service{
 		articleRepo: ar,
 		sourceRepo:  sr,
@@ -49,30 +49,24 @@ func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
 	for _, item := range res.Feed.Channel.Items {
 		hash := md5.Sum([]byte(item.Link))
 
-		exists, err := s.articleRepo.CheckArticleByHash(ctx, hash)
+		article := models.Article{
+			SourceID:    res.Job.SourceId,
+			OriginalURL: item.Link,
+			Content:     item.Description,
+			Tags:        nil,
+			Status:      "pending",
+		}
+
+		id, err := s.articleRepo.SaveArticle(ctx, article, hash)
 		if err != nil {
-			log.Println(err)
+			log.Printf("failed to save article: %v", err)
 			return
 		}
 
-		if !exists {
-			article := models.Article{
-				SourceID:    res.Job.SourceId,
-				OriginalURL: item.Link,
-				Content:     item.Description,
-				Tags:        nil,
-				Status:      "pending",
-			}
-
-			id, err := s.articleRepo.SaveArticle(ctx, article)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-
+		if id > 0 {
 			err = s.publisher.Publish("news", []byte(strconv.FormatInt(id, 10)))
 			if err != nil {
-				log.Println(err)
+				log.Printf("failed to save publish: %v", err)
 				return
 			}
 		}
@@ -115,8 +109,8 @@ func (s *Service) GetCountByTag(ctx context.Context, tags []string) (int, error)
 	return s.articleRepo.GetCountByTag(ctx, tags)
 }
 
-func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset int) ([]handlers.Article, error) {
-	articles, err := s.articleRepo.GetArticlesByTag(ctx, tags, offset)
+func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset int, limit int) ([]handlers.Article, error) {
+	articles, err := s.articleRepo.GetArticlesByTag(ctx, tags, offset, limit)
 	if err != nil {
 		return nil, err
 	}

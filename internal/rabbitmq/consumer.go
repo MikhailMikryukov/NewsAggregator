@@ -62,7 +62,7 @@ func (c *Consumer) consume(ctx context.Context) error {
 
 	msg, err := ch.Consume(
 		c.queue,
-		"",
+		"consumer",
 		false,
 		false,
 		false,
@@ -122,7 +122,7 @@ func (c *Consumer) worker(ctx context.Context, msgs <-chan amqp091.Delivery) {
 
 func (c *Consumer) processDelivery(ctx context.Context, msg amqp091.Delivery) {
 	handleErr := c.handler(ctx, msg)
-
+	fmt.Println(handleErr)
 	if handleErr != nil {
 		nackErr := msg.Nack(false, false)
 		if nackErr != nil {

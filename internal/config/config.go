@@ -21,7 +21,7 @@ var (
 type Config struct {
 	Port               string
 	DBConnectionString string
-	AIConfig           OpenAIConfig
+	AIConfig           AIConfig
 	RabbitCfg          RabbitConfig
 	RssWorkersNum      int
 }
@@ -36,12 +36,14 @@ type RabbitConfig struct {
 	ConsumingStrategy  RetryStrategy
 }
 
-type OpenAIConfig struct {
-	APIKey      string
-	Model       string
-	MaxTokens   int64
-	Temperature float64
-	Timeout     time.Duration
+type AIConfig struct {
+	YandexKeyFilePath string
+	YandexFolderID    string
+	YandexModel       string
+	MaxTokens         int64
+	Temperature       float64
+	MaxTags           int
+	Timeout           time.Duration
 }
 
 type RetryStrategy struct {
@@ -91,34 +93,43 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-func loadAIConfig() (*OpenAIConfig, error) {
-	apiKey := getEnv("OPENAI_API_KEY", "")
-	model := getEnv("OPENAI_MODEL", "")
-	maxTokensStr := getEnv("OPENAI_MAX_TOKENS", "0")
-	temperatureStr := getEnv("OPENAI_TEMPERATURE", "0")
-	timeoutStr := getEnv("OPENAI_TIMEOUT", "0")
+func loadAIConfig() (*AIConfig, error) {
+	YandexKeyFilePath := getEnv("YANDEX_GPT_KEY_FILE_PATH", "")
+	model := getEnv("YANDEX_GPT_MODEL", "yandexgpt-lite")
+	folderId := getEnv("YANDEX_GPT_FOLDER_ID", "")
+	maxTokensStr := getEnv("YANDEX_GPT_MAX_TOKENS", "0")
+	temperatureStr := getEnv("YANDEX_GPT_TEMPERATURE", "0")
+	timeoutStr := getEnv("YANDEX_GPT_TIMEOUT", "0")
+	maxTagsStr := getEnv("YANDEX_GPT_MAX_TAGS", "5")
 
 	maxTokens, err := strconv.ParseInt(maxTokensStr, 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("invalid OPENAI_MAX_TOKENS: %w", err)
+		return nil, fmt.Errorf("invalid YANDEX_GPT_MAX_TOKENS: %w", err)
 	}
 
 	temperature, err := strconv.ParseFloat(temperatureStr, 64)
 	if err != nil {
-		return nil, fmt.Errorf("invalid OPENAI_TEMPERATURE: %w", err)
+		return nil, fmt.Errorf("invalid YANDEX_GPT_TEMPERATURE: %w", err)
 	}
 
 	timeout, err := strconv.Atoi(timeoutStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid RABBIT_RETRY_DELAY: %w", err)
+		return nil, fmt.Errorf("invalid YANDEX_GPT_TIMEOUT: %w", err)
 	}
 
-	cfg := &OpenAIConfig{
-		APIKey:      apiKey,
-		Model:       model,
-		MaxTokens:   maxTokens,
-		Temperature: temperature,
-		Timeout:     time.Duration(timeout) * time.Second,
+	maxTags, err := strconv.Atoi(maxTagsStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid YANDEX_GPT_MAX_TAGS: %w", err)
+	}
+
+	cfg := &AIConfig{
+		YandexKeyFilePath: YandexKeyFilePath,
+		YandexModel:       model,
+		YandexFolderID:    folderId,
+		MaxTokens:         maxTokens,
+		Temperature:       temperature,
+		MaxTags:           maxTags,
+		Timeout:           time.Duration(timeout) * time.Second,
 	}
 
 	err = cfg.validate()
@@ -129,19 +140,27 @@ func loadAIConfig() (*OpenAIConfig, error) {
 	return cfg, nil
 }
 
-func (c *OpenAIConfig) validate() error {
+func (c *AIConfig) validate() error {
 	var errs []string
 
-	if c.APIKey == "" {
-		errs = append(errs, "OPEN_API_KEY cannot be empty")
+	if c.YandexKeyFilePath == "" {
+		errs = append(errs, "YANDEX_GPT_KEY_FILE_PATH cannot be empty")
 	}
 
-	if c.Temperature < 0 || c.Temperature > 2 {
-		errs = append(errs, "OPENAI_TEMPERATURE must be in 0 - 2.0 range")
+	if c.YandexModel == "" {
+		errs = append(errs, "YANDEX_GPT_MODEL cannot be empty")
+	}
+
+	if c.YandexFolderID == "" {
+		errs = append(errs, "YANDEX_GPT_FOLDER_ID cannot be empty")
+	}
+
+	if c.Temperature < 0 || c.Temperature > 1 {
+		errs = append(errs, "YANDEX_GPT_TEMPERATURE must be in 0 - 1.0 range")
 	}
 
 	if c.Timeout < 0 {
-		errs = append(errs, "OPENAI_TIMEOUT cannot be negative")
+		errs = append(errs, "YANDEX_GPT_TIMEOUT cannot be negative")
 	}
 
 	if len(errs) > 0 {

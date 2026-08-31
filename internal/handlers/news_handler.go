@@ -16,7 +16,7 @@ const (
 
 type NewsService interface {
 	GetCountByTag(ctx context.Context, tags []string) (int, error)
-	GetArticlesByTag(ctx context.Context, tags []string, offset int) ([]Article, error)
+	GetArticlesByTag(ctx context.Context, tags []string, offset int, limit int) ([]Article, error)
 	GetAllTags(ctx context.Context) ([]string, error)
 }
 
@@ -35,6 +35,10 @@ func NewRouter(s NewsService) *http.ServeMux {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/static/index.html")
+	})
+
 	mux.HandleFunc("/feed", handler.handleFeed)
 
 	return mux
@@ -50,6 +54,16 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusBadRequest, Response{
 			Status:  StatusError,
 			Message: "invalid page num",
+		})
+		return
+	}
+
+	limitStr := r.FormValue("limit")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		h.writeJSON(w, http.StatusBadRequest, Response{
+			Status:  StatusError,
+			Message: "invalid limit num",
 		})
 		return
 	}
@@ -71,7 +85,7 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 
 	offset := page * itemsPerPage
 
-	articles, err := h.s.GetArticlesByTag(ctx, tags, offset)
+	articles, err := h.s.GetArticlesByTag(ctx, tags, offset, limit)
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
 			Status:  StatusError,

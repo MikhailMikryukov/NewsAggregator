@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/ai"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
 	"log"
+	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/rabbitmq/amqp091-go"
 
-	"github.com/MikhailMikryukov/NewsAggregator/internal/ai"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/config"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/parser"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/rabbitmq"
@@ -19,6 +22,10 @@ import (
 )
 
 func main() {
+	// Явно указываем stderr
+	log.SetOutput(os.Stderr)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.Println("=== ЛОГГЕР ЗАПУЩЕН ===")
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
@@ -41,7 +48,10 @@ func run() error {
 
 	pool := workers.New(cfg.RssWorkersNum, rssParser)
 
-	aiClient := ai.NewOpenAIClient(cfg.AIConfig)
+	aiClient, err := ai.NewYandexAIClient(ctx, cfg.AIConfig)
+	if err != nil {
+		return err
+	}
 
 	rabbitClient, err := rabbitmq.NewClient(cfg.RabbitCfg)
 	if err != nil {
@@ -101,6 +111,19 @@ func run() error {
 		defer wg.Done()
 		for jobRes := range pool.Results() {
 			service.HandleJobResult(ctx, jobRes)
+		}
+	}()
+
+	router := handlers.NewRouter(service)
+
+	server := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: router,
+	}
+
+	go func() {
+		if err = server.ListenAndServe(); err != nil {
+			log.Printf("server error: %v", err)
 		}
 	}()
 

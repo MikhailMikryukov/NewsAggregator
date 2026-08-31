@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,12 +17,11 @@ type SourceRepository interface {
 }
 
 type ArticleRepository interface {
-	SaveArticle(ctx context.Context, a models.Article) (int64, error)
+	SaveArticle(ctx context.Context, a models.Article, hash [16]byte) (int64, error)
 	GetArticle(ctx context.Context, id int64) (*models.Article, error)
-	CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error)
 	UpdateArticle(ctx context.Context, a models.Article) error
 	GetCountByTag(ctx context.Context, tag []string) (int, error)
-	GetArticlesByTag(ctx context.Context, tag []string, offset int) ([]models.Article, error)
+	GetArticlesByTag(ctx context.Context, tag []string, offset int, limit int) ([]models.Article, error)
 	GetAllTags(ctx context.Context) ([]string, error)
 }
 
@@ -76,11 +77,19 @@ func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, e
 	return sources, nil
 }
 
-func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article) (int64, error) {
-	query := "INSERT INTO articles (source_id, original_url, title, content, tags, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
+func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article, hash [16]byte) (int64, error) {
+	query := `
+			INSERT INTO articles (source_id, original_url, title, content, tags, status, hash) 
+			VALUES ($1, $2, $3, $4, $5, $6, $7) 
+			ON CONFLICT (hash) DO NOTHING
+			RETURNING id
+			`
 
 	var id int64
-	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Title, a.Content, a.Tags, a.Status).Scan(&id)
+	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Title, a.Content, a.Tags, a.Status, hash[:]).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return -1, nil
+	}
 	if err != nil {
 		return -1, err
 	}
@@ -100,19 +109,6 @@ func (r *PostgresRepository) GetArticle(ctx context.Context, id int64) (*models.
 	}
 
 	return &a, nil
-}
-
-func (r *PostgresRepository) CheckArticleByHash(ctx context.Context, hash [16]byte) (bool, error) {
-	query := "SELECT EXISTS(SELECT 1 FROM articles WHERE hash = $1)"
-	row := r.db.QueryRow(ctx, query, hash)
-	var exists bool
-
-	err := row.Scan(&exists)
-	if err != nil {
-		return false, err
-	}
-
-	return exists, nil
 }
 
 func (r *PostgresRepository) UpdateArticle(ctx context.Context, a models.Article) error {
@@ -149,17 +145,17 @@ func (r *PostgresRepository) GetCountByTag(ctx context.Context, tag []string) (i
 	return count, nil
 }
 
-func (r *PostgresRepository) GetArticlesByTag(ctx context.Context, tag []string, offset int) ([]models.Article, error) {
+func (r *PostgresRepository) GetArticlesByTag(ctx context.Context, tag []string, offset int, limit int) ([]models.Article, error) {
 	query := "SELECT id, source_id, original_url, title, content, tags, status FROM articles"
 
 	var args []interface{}
 
 	if len(tag) != 0 {
-		query += " WHERE tags in $1 OFFSET $2"
-		args = []interface{}{tag, offset}
+		query += " WHERE tags in $1 OFFSET $2 LIMIT $3"
+		args = []interface{}{tag, offset, limit}
 	} else {
-		query += " OFFSET $1"
-		args = []interface{}{offset}
+		query += " OFFSET $1 LIMIT $2"
+		args = []interface{}{offset, limit}
 	}
 
 	rows, err := r.db.Query(ctx, query, args...)

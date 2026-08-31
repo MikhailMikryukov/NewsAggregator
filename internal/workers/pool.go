@@ -64,7 +64,7 @@ func (p *Pool) Start(ctx context.Context) {
 
 					if err != nil {
 						log.Println(err)
-						return
+						continue
 					}
 				}
 			}
