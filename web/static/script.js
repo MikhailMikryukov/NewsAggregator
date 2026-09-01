@@ -10,6 +10,7 @@
         allTags: [],
         articles: [],
         loading: false,
+        limit: 10,
     };
 
     // --- DOM-элементы ---
@@ -22,12 +23,12 @@
     const pageInfoSpan = document.getElementById('pageInfo');
     const itemsInfoSpan = document.getElementById('itemsInfo');
     const totalBadge = document.getElementById('totalBadge');
+    const limitSelect = document.getElementById('limitSelect');
 
-    // --- работа с API (реальный fetch) ---
-
-    async function fetchFeed(page = 1, tag = '') {
+    async function fetchFeed(page = 1, limit = 10, tag = '') {
         const params = new URLSearchParams();
         params.append('page', String(page));
+        params.append('limit', String(limit));
         if (tag) {
             params.append('tag', tag);
         }
@@ -49,13 +50,14 @@
             allTags: data.allTags || [],
             currentPage: data.currentPage || page,
             selectedTag: data.selectedTag || tag,
+            limit: data.limit || limit,
         };
     }
 
     // --- рендеринг ---
 
     function renderFeed(data) {
-        const { articles, totalPages, totalItems, allTags, currentPage, selectedTag } = data;
+        const { articles, totalPages, totalItems, allTags, currentPage, selectedTag, limit } = data;
 
         state.articles = articles;
         state.totalPages = totalPages;
@@ -63,20 +65,13 @@
         state.allTags = allTags;
         state.currentPage = currentPage;
         state.selectedTag = selectedTag;
+        state.limit = limit || state.limit;
 
         // 1. Рендерим карточки
         if (!articles || articles.length === 0) {
             feedContainer.innerHTML = `<div class="status">📭 Новостей не найдено</div>`;
         } else {
-            feedContainer.innerHTML = articles.map(article => `
-                <div class="article-card">
-                    <div class="article-title">${escapeHtml(article.title)}</div>
-                    <div class="article-content">${escapeHtml(article.content)}</div>
-                    <div class="article-tags">
-                        ${(article.tags || []).map(tag => `<span class="article-tag">${escapeHtml(tag)}</span>`).join('')}
-                    </div>
-                </div>
-            `).join('');
+            feedContainer.innerHTML = articles.map(article => renderArticleCard(article)).join('');
         }
 
         // 2. Рендерим теги-фильтры
@@ -89,6 +84,62 @@
         totalBadge.textContent = `${totalItems} нов.`;
         pageInfoSpan.textContent = `страница ${currentPage} из ${totalPages}`;
         itemsInfoSpan.textContent = `${articles.length} из ${totalItems} новостей`;
+    }
+
+    // --- отрисовка одной статьи ---
+
+    function renderArticleCard(article) {
+        // Форматируем дату
+        const formattedDate = article.date ? formatDate(article.date) : '';
+
+        // Сокращаем контент до 300 символов
+        const shortContent = article.content.length > 300
+            ? article.content.substring(0, 300) + '...'
+            : article.content;
+
+        return `
+            <div class="article-card">
+                <div class="article-body">
+                    <div class="article-header">
+                        <h2 class="article-title">${escapeHtml(article.title)}</h2>
+                        ${formattedDate ? `<span class="article-date">${formattedDate}</span>` : ''}
+                    </div>
+                    
+                    <div class="article-content">${escapeHtml(shortContent)}</div>
+                    
+                    <div class="article-footer">
+                        <div class="article-tags">
+                            ${(article.tags || []).map(tag =>
+            `<span class="article-tag">${escapeHtml(tag)}</span>`
+        ).join('')}
+                        </div>
+                        ${article.link ? `<a href="${escapeHtml(article.link)}" target="_blank" class="read-more">Читать далее →</a>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    // --- вспомогательные функции для отрисовки ---
+
+    function formatDate(dateString) {
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return '';
+
+            const now = new Date();
+            const diff = Math.floor((now - date) / 1000); // разница в секундах
+
+            if (diff < 60) return 'только что';
+            if (diff < 3600) return `${Math.floor(diff / 60)} мин. назад`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)} ч. назад`;
+            if (diff < 172800) return 'вчера';
+
+            const options = { day: 'numeric', month: 'long', year: 'numeric' };
+            return date.toLocaleDateString('ru-RU', options);
+        } catch {
+            return dateString;
+        }
     }
 
     function renderTagFilters(allTags, selectedTag) {
@@ -105,9 +156,9 @@
             btn.addEventListener('click', function() {
                 const tag = this.dataset.tag;
                 if (state.selectedTag === tag) {
-                    loadFeed(1, '');
+                    loadFeed(1, '', state.limit);
                 } else {
-                    loadFeed(1, tag);
+                    loadFeed(1, tag, state.limit);
                 }
             });
         });
@@ -137,7 +188,7 @@
             btn.addEventListener('click', function() {
                 const page = parseInt(this.dataset.page);
                 if (page !== state.currentPage) {
-                    loadFeed(page, state.selectedTag);
+                    loadFeed(page, state.selectedTag, state.limit);
                 }
             });
         });
@@ -145,14 +196,14 @@
 
     // --- загрузка данных ---
 
-    async function loadFeed(page, tag) {
+    async function loadFeed(page, tag, limit) {
         if (state.loading) return;
 
         state.loading = true;
         feedContainer.innerHTML = `<div class="loader">⏳ Загрузка...</div>`;
 
         try {
-            const data = await fetchFeed(page, tag);
+            const data = await fetchFeed(page, limit, tag);
             renderFeed(data);
         } catch (err) {
             console.error('Ошибка загрузки:', err);
@@ -167,25 +218,30 @@
         }
     }
 
-    // --- обработчики пагинации ---
+    // --- обработчики ---
 
     prevPageBtn.addEventListener('click', function() {
         if (state.currentPage > 1) {
-            loadFeed(state.currentPage - 1, state.selectedTag);
+            loadFeed(state.currentPage - 1, state.selectedTag, state.limit);
         }
     });
 
     nextPageBtn.addEventListener('click', function() {
         if (state.currentPage < state.totalPages) {
-            loadFeed(state.currentPage + 1, state.selectedTag);
+            loadFeed(state.currentPage + 1, state.selectedTag, state.limit);
         }
     });
 
-    // --- сброс фильтра ---
+    limitSelect.addEventListener('change', function() {
+        const newLimit = parseInt(this.value);
+        if (newLimit !== state.limit) {
+            loadFeed(1, state.selectedTag, newLimit);
+        }
+    });
 
     clearTagsBtn.addEventListener('click', function() {
         if (state.selectedTag !== '') {
-            loadFeed(1, '');
+            loadFeed(1, '', state.limit);
         }
     });
 
@@ -200,5 +256,5 @@
 
     // --- инициализация ---
 
-    loadFeed(1, '');
+    loadFeed(1, '', 10);
 })();

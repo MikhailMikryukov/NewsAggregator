@@ -1,12 +1,10 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Лента новостей</title>
-  <!-- подключаем отдельный CSS -->
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 <div class="app" id="app">
@@ -15,13 +13,23 @@
     <small id="totalBadge">загрузка...</small>
   </h1>
 
-  <!-- Фильтр по тегам -->
+  <!-- Фильтр по тегам и выбор количества -->
   <div class="filter-section">
-    <span class="filter-label">🏷️ Теги</span>
-    <div class="tag-filter" id="tagFilterContainer">
-      <!-- динамически из данных -->
+    <div class="filter-left">
+      <span class="filter-label">🏷️ Теги</span>
+      <div class="tag-filter" id="tagFilterContainer">
+        <!-- динамически из данных -->
+      </div>
     </div>
-    <button class="clear-tags" id="clearTagsBtn" title="Сбросить фильтр">✕ сбросить</button>
+    <div class="filter-right">
+      <span class="filter-label">Показывать:</span>
+      <select id="limitSelect" class="limit-select">
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="50">50</option>
+      </select>
+      <button class="clear-tags" id="clearTagsBtn" title="Сбросить фильтр">✕ сбросить</button>
+    </div>
   </div>
 
   <!-- Лента -->
@@ -42,6 +50,6 @@
   </div>
 </div>
 
-<script src="script.js"></script>
+<script src="/static/script.js"></script>
 </body>
 </html>
