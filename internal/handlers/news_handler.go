@@ -10,8 +10,7 @@ import (
 )
 
 const (
-	itemsPerPage = 10
-	StatusError  = "error"
+	StatusError = "error"
 )
 
 type NewsService interface {
@@ -35,8 +34,15 @@ func NewRouter(s NewsService) *http.ServeMux {
 
 	mux := http.NewServeMux()
 
+	fs := http.FileServer(http.Dir("web/static"))
+	mux.Handle("/static/", http.StripPrefix("/static/", fs))
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/static/index.html")
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, "web/static/index.html")
 	})
 
 	mux.HandleFunc("/feed", handler.handleFeed)
@@ -45,8 +51,13 @@ func NewRouter(s NewsService) *http.ServeMux {
 }
 
 func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
+	var tags []string
+
 	tagStr := r.FormValue("tag")
-	tags := strings.Split(tagStr, " ")
+
+	if tagStr != "" {
+		tags = strings.Split(tagStr, ",")
+	}
 
 	pageStr := r.FormValue("page")
 	page, err := strconv.Atoi(pageStr)
@@ -74,22 +85,22 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
 			Status:  StatusError,
-			Message: "",
+			Message: "error getting tags count",
 		})
 		return
 	}
 
-	if allArticlesCount < page*itemsPerPage {
-		page = allArticlesCount / itemsPerPage
+	if allArticlesCount < page*limit {
+		page = allArticlesCount / limit
 	}
 
-	offset := page * itemsPerPage
+	offset := page * limit
 
 	articles, err := h.s.GetArticlesByTag(ctx, tags, offset, limit)
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
 			Status:  StatusError,
-			Message: "",
+			Message: "error getting articles by tag",
 		})
 		return
 	}
@@ -98,14 +109,14 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.writeJSON(w, http.StatusInternalServerError, Response{
 			Status:  StatusError,
-			Message: "",
+			Message: "error getting all tags",
 		})
 		return
 	}
 
 	result := FeedResponse{
 		Articles:    articles,
-		TotalPages:  allArticlesCount / itemsPerPage,
+		TotalPages:  allArticlesCount / limit,
 		TotalItems:  len(articles),
 		CurrentPage: page,
 		AllTags:     allTags,
