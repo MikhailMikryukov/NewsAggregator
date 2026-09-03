@@ -41,7 +41,7 @@ func (s *Service) SetRssJobs(ctx context.Context) {
 	}
 
 	for _, source := range rssSources {
-		s.pool.Submit(source.ID, source.RssURL)
+		s.pool.Submit(ctx, source.ID, source.RssURL)
 	}
 }
 

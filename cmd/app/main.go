@@ -3,21 +3,22 @@ package main
 import (
 	"context"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/ai"
-	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
-	"log"
-	"net/http"
-	"strconv"
-	"sync"
-	"time"
-
-	"github.com/rabbitmq/amqp091-go"
-
 	"github.com/MikhailMikryukov/NewsAggregator/internal/config"
+	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/parser"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/rabbitmq"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/repository"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/services"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/workers"
+	"github.com/rabbitmq/amqp091-go"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"sync"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -32,12 +33,18 @@ func run() error {
 		return err
 	}
 
-	ctx := context.TODO()
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
 
 	rep, err := repository.NewRepository(ctx, cfg.DBConnectionString)
 	if err != nil {
 		return err
 	}
+	defer rep.Close()
 
 	rssParser := parser.NewRSSParser(10 * time.Second)
 

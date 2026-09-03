@@ -204,3 +204,7 @@ func (r *PostgresRepository) GetAllTags(ctx context.Context) ([]string, error) {
 
 	return result, nil
 }
+
+func (r *PostgresRepository) Close() {
+	r.db.Close()
+}

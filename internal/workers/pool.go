@@ -56,7 +56,7 @@ func (p *Pool) Start(ctx context.Context) {
 
 					feed, err := w.Process(ctx, job.SourceURL)
 
-					p.results <- &JobResult{
+					res := &JobResult{
 						Job:  job,
 						Feed: feed,
 						Err:  err,
@@ -64,7 +64,12 @@ func (p *Pool) Start(ctx context.Context) {
 
 					if err != nil {
 						log.Println(err)
-						continue
+					}
+
+					select {
+					case <-ctx.Done():
+						return
+					case p.results <- res:
 					}
 				}
 			}
@@ -77,10 +82,14 @@ func (p *Pool) Start(ctx context.Context) {
 	}()
 }
 
-func (p *Pool) Submit(sourceId int, sourceURL string) {
-	p.jobs <- &Job{
+func (p *Pool) Submit(ctx context.Context, sourceId int, sourceURL string) {
+	select {
+	case <-ctx.Done():
+		return
+	case p.jobs <- &Job{
 		SourceId:  sourceId,
 		SourceURL: sourceURL,
+	}:
 	}
 }
 
