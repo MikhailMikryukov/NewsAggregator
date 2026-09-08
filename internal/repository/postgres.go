@@ -35,6 +35,10 @@ func NewRepository(ctx context.Context, connString string) (*PostgresRepository,
 		return nil, err
 	}
 
+	if err = db.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+
 	return &PostgresRepository{
 		db: db,
 	}, nil
@@ -79,14 +83,14 @@ func (r *PostgresRepository) GetSources(ctx context.Context) ([]models.Source, e
 
 func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article, hash [16]byte) (int64, error) {
 	query := `
-			INSERT INTO articles (source_id, original_url, title, content, tags, status, hash) 
-			VALUES ($1, $2, $3, $4, $5, $6, $7) 
+			INSERT INTO articles (source_id, original_url, title, content, tags, pub_date, status, hash) 
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
 			ON CONFLICT (hash) DO NOTHING
 			RETURNING id
 			`
 
 	var id int64
-	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Title, a.Content, a.Tags, a.Status, hash[:]).Scan(&id)
+	err := r.db.QueryRow(ctx, query, a.SourceID, a.OriginalURL, a.Title, a.Content, a.Tags, a.PubDate, a.Status, hash[:]).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return -1, nil
 	}
@@ -98,12 +102,12 @@ func (r *PostgresRepository) SaveArticle(ctx context.Context, a models.Article, 
 }
 
 func (r *PostgresRepository) GetArticle(ctx context.Context, id int64) (*models.Article, error) {
-	query := "SELECT id, source_id, original_url, title, content, tags, status FROM articles WHERE id = $1"
+	query := "SELECT id, source_id, original_url, title, content, tags, pub_date, status FROM articles WHERE id = $1"
 
 	row := r.db.QueryRow(ctx, query, id)
 	var a models.Article
 
-	err := row.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Title, &a.Content, &a.Tags, &a.Status)
+	err := row.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Title, &a.Content, &a.Tags, &a.PubDate, &a.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +150,7 @@ func (r *PostgresRepository) GetCountByTag(ctx context.Context, tag []string) (i
 }
 
 func (r *PostgresRepository) GetArticlesByTag(ctx context.Context, tag []string, offset int, limit int) ([]models.Article, error) {
-	query := "SELECT id, source_id, original_url, title, content, tags, status FROM articles"
+	query := "SELECT id, source_id, original_url, title, content, tags, pub_date, status FROM articles"
 
 	var args []interface{}
 
@@ -169,12 +173,16 @@ func (r *PostgresRepository) GetArticlesByTag(ctx context.Context, tag []string,
 	for rows.Next() {
 		var a models.Article
 
-		err = rows.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Title, &a.Content, &a.Tags, &a.Status)
+		err = rows.Scan(&a.ID, &a.SourceID, &a.OriginalURL, &a.Title, &a.Content, &a.Tags, &a.PubDate, &a.Status)
 		if err != nil {
 			return nil, err
 		}
 
 		result = append(result, a)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	return result, nil
@@ -200,6 +208,10 @@ func (r *PostgresRepository) GetAllTags(ctx context.Context) ([]string, error) {
 		}
 
 		result = append(result, tag)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
 	}
 
 	return result, nil

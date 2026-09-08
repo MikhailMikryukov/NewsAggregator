@@ -2,7 +2,6 @@ package workers
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"github.com/MikhailMikryukov/NewsAggregator/internal/parser"
@@ -60,10 +59,6 @@ func (p *Pool) Start(ctx context.Context) {
 						Job:  job,
 						Feed: feed,
 						Err:  err,
-					}
-
-					if err != nil {
-						log.Println(err)
 					}
 
 					select {

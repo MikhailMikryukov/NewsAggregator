@@ -6,18 +6,22 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/rabbitmq/amqp091-go"
 )
 
-var ErrConsumerStopped = errors.New("consumer stopped")
+var (
+	ErrConsumerStopped = errors.New("consumer stopped")
+	ErrGetChannel      = errors.New("failed to get channel")
+	ErrStartConsumer   = errors.New("failed to start consumer")
+)
 
 type MessageHandler func(context.Context, amqp091.Delivery) error
 
 type Consumer struct {
 	client     *RabbitClient
 	handler    MessageHandler
-	done       chan struct{}
 	queue      string
 	workersNum int
 }
@@ -41,7 +45,28 @@ func (c *Consumer) Start(ctx context.Context) error {
 		default:
 		}
 
-		if err := c.consume(ctx); err != nil {
+		attempts := c.client.cfg.ConsumingStrategy.Attempts
+		delay := c.client.cfg.ConsumingStrategy.Delay
+		backoff := c.client.cfg.ConsumingStrategy.Backoff
+
+		currentAttempt := 0
+
+		for ; currentAttempt <= attempts; currentAttempt++ {
+			err := c.consume(ctx)
+
+			if err != nil {
+				log.Println(err)
+			}
+
+			if errors.Is(err, ErrGetChannel) || errors.Is(err, ErrStartConsumer) {
+				time.Sleep(delay)
+				delay = time.Duration(float64(delay) * backoff)
+				continue
+			}
+
+		}
+
+		if currentAttempt == attempts {
 			continue
 		}
 
@@ -52,10 +77,10 @@ func (c *Consumer) Start(ctx context.Context) error {
 func (c *Consumer) consume(ctx context.Context) error {
 	ch, err := c.client.GetChannel()
 	if err != nil {
-		return fmt.Errorf("failed to get channel: %w", err)
+		return fmt.Errorf("%w: %w", ErrGetChannel, err)
 	}
 	defer func() {
-		if chErr := ch.Close(); err != nil {
+		if chErr := ch.Close(); chErr != nil {
 			log.Printf("error closing channel %v", chErr)
 		}
 	}()
@@ -69,7 +94,7 @@ func (c *Consumer) consume(ctx context.Context) error {
 		false,
 		nil)
 	if err != nil {
-		return fmt.Errorf("failed to start consumer: %w", err)
+		return fmt.Errorf("%w: %w", ErrStartConsumer, err)
 	}
 
 	workerCtx, cancel := context.WithCancel(ctx)
@@ -85,23 +110,25 @@ func (c *Consumer) consume(ctx context.Context) error {
 		}()
 	}
 
+	done := make(chan struct{})
+
 	go func() {
 		wg.Wait()
-		close(c.done)
+		close(done)
 	}()
 
 	select {
 	case <-ctx.Done():
 		cancel()
-		<-c.done
+		<-done
 		return ctx.Err()
 
 	case <-c.client.Context().Done():
 		cancel()
-		<-c.done
+		<-done
 		return c.client.Context().Err()
 
-	case <-c.done:
+	case <-done:
 		return ErrConsumerStopped
 	}
 }

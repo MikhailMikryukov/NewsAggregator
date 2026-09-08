@@ -46,12 +46,19 @@ func (s *Service) SetRssJobs(ctx context.Context) {
 }
 
 func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
+
+	if res.Err != nil {
+		log.Println(res.Err)
+		return
+	}
+
 	for _, item := range res.Feed.Channel.Items {
 		hash := md5.Sum([]byte(item.Link))
 
 		article := models.Article{
 			SourceID:    res.Job.SourceId,
 			OriginalURL: item.Link,
+			Title:       item.Title,
 			Content:     item.Description,
 			Tags:        nil,
 			Status:      "pending",
@@ -60,14 +67,14 @@ func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
 		id, err := s.articleRepo.SaveArticle(ctx, article, hash)
 		if err != nil {
 			log.Printf("failed to save article: %v", err)
-			return
+			continue
 		}
 
 		if id > 0 {
 			err = s.publisher.Publish("news", []byte(strconv.FormatInt(id, 10)))
 			if err != nil {
 				log.Printf("failed to save publish: %v", err)
-				return
+				continue
 			}
 		}
 	}
@@ -79,7 +86,7 @@ func (s *Service) HandleArticle(ctx context.Context, id int64) error {
 		return err
 	}
 
-	if len(article.Tags) > 0 {
+	if article.Status == "proceed" {
 		log.Printf("article already proceed %d", id)
 		return nil
 	}
@@ -120,6 +127,7 @@ func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset in
 		result[i].Title = articles[i].Title
 		result[i].Tags = articles[i].Tags
 		result[i].Content = articles[i].Content
+		result[i].Date = articles[i].PubDate
 	}
 
 	return result, nil

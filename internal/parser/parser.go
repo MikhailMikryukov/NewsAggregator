@@ -49,7 +49,7 @@ func NewRSSParser(timeout time.Duration) *RSSParser {
 }
 
 func (p *RSSParser) Parse(ctx context.Context, url string) (*RSSFeed, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, p.client.Timeout)
 	defer cancel()
 
 	body, err := p.fetchFeed(ctxWithTimeout, url)
@@ -62,9 +62,7 @@ func (p *RSSParser) Parse(ctx context.Context, url string) (*RSSFeed, error) {
 		return nil, err
 	}
 
-	if err := p.parseDates(feed); err != nil {
-		return nil, err
-	}
+	p.parseDates(feed)
 
 	return feed, nil
 }
@@ -95,14 +93,14 @@ func (p *RSSParser) fetchFeed(ctx context.Context, url string) ([]byte, error) {
 
 func (p *RSSParser) readBody(body io.ReadCloser) ([]byte, error) {
 	const maxSize = 10 * 1024 * 1024
-	limited := io.LimitReader(body, maxSize)
+	limited := io.LimitReader(body, maxSize+1)
 
 	data, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, fmt.Errorf("body reading error: %w", err)
 	}
 
-	if len(data) == maxSize {
+	if len(data) > maxSize {
 		return nil, fmt.Errorf("%w", ErrTooLargeResponse)
 	}
 
@@ -118,7 +116,7 @@ func (p *RSSParser) parseFeed(body []byte) (*RSSFeed, error) {
 	return &feed, nil
 }
 
-func (p *RSSParser) parseDates(feed *RSSFeed) error {
+func (p *RSSParser) parseDates(feed *RSSFeed) {
 	for i := range feed.Channel.Items {
 		item := &feed.Channel.Items[i]
 		if item.PubDate == "" {
@@ -127,11 +125,11 @@ func (p *RSSParser) parseDates(feed *RSSFeed) error {
 
 		parsedDate, err := parseRSSDate(item.PubDate)
 		if err != nil {
-			return fmt.Errorf("date parsing error %s: %w", item.Title, err)
+			log.Printf("date parsing error %s: %v", item.Title, err)
+			continue
 		}
 		item.ParsedPubDate = parsedDate
 	}
-	return nil
 }
 
 func parseRSSDate(dateStr string) (*time.Time, error) {

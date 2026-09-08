@@ -1,5 +1,7 @@
 package handlers
 
+import "time"
+
 type Response struct {
 	Status  string
 	Message string
@@ -15,7 +17,8 @@ type FeedResponse struct {
 }
 
 type Article struct {
-	Title   string   `json:"title"`
-	Content string   `json:"content"`
-	Tags    []string `json:"tags"`
+	Title   string     `json:"title"`
+	Content string     `json:"content"`
+	Tags    []string   `json:"tags"`
+	Date    *time.Time `json:"date"`
 }

@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type Source struct {
 	RssURL string
 	ID     int
@@ -13,4 +15,5 @@ type Article struct {
 	Tags        []string
 	ID          int64
 	SourceID    int
+	PubDate     *time.Time
 }

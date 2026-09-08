@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 const (
 	StatusError = "error"
 )
+
+var ErrNumParameter = errors.New("number must be greater than 0")
 
 type NewsService interface {
 	GetCountByTag(ctx context.Context, tags []string) (int, error)
@@ -60,21 +64,21 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageStr := r.FormValue("page")
-	page, err := strconv.Atoi(pageStr)
+	page, err := validateNumParam(pageStr)
 	if err != nil {
 		h.writeJSON(w, http.StatusBadRequest, Response{
 			Status:  StatusError,
-			Message: "invalid page num",
+			Message: "invalid page num: " + err.Error(),
 		})
 		return
 	}
 
 	limitStr := r.FormValue("limit")
-	limit, err := strconv.Atoi(limitStr)
+	limit, err := validateNumParam(limitStr)
 	if err != nil {
 		h.writeJSON(w, http.StatusBadRequest, Response{
 			Status:  StatusError,
-			Message: "invalid limit num",
+			Message: "invalid limit num: " + err.Error(),
 		})
 		return
 	}
@@ -132,4 +136,17 @@ func (h *NewsHandler) writeJSON(w http.ResponseWriter, status int, data interfac
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Println(err)
 	}
+}
+
+func validateNumParam(numStr string) (int, error) {
+	num, err := strconv.Atoi(numStr)
+	if err != nil {
+		return -1, err
+	}
+
+	if num < 1 {
+		return -1, fmt.Errorf("%w", ErrNumParameter)
+	}
+
+	return num, nil
 }
