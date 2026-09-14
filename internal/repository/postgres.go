@@ -20,6 +20,7 @@ type ArticleRepository interface {
 	SaveArticle(ctx context.Context, a models.Article, hash [16]byte) (int64, error)
 	GetArticle(ctx context.Context, id int64) (*models.Article, error)
 	UpdateArticle(ctx context.Context, a models.Article) error
+	UpdateStatus(ctx context.Context, articleID int64, status string) error
 	GetCountByTag(ctx context.Context, tag []string) (int, error)
 	GetArticlesByTag(ctx context.Context, tag []string, offset int, limit int) ([]models.Article, error)
 	GetAllTags(ctx context.Context) ([]string, error)
@@ -118,6 +119,13 @@ func (r *PostgresRepository) GetArticle(ctx context.Context, id int64) (*models.
 func (r *PostgresRepository) UpdateArticle(ctx context.Context, a models.Article) error {
 	query := "UPDATE articles SET tags = $1, status = $2 WHERE id = $3"
 	_, err := r.db.Exec(ctx, query, a.Tags, a.Status, a.ID)
+
+	return err
+}
+
+func (r *PostgresRepository) UpdateStatus(ctx context.Context, articleID int64, status string) error {
+	query := "UPDATE articles SET status = $1 WHERE id = $2"
+	_, err := r.db.Exec(ctx, query, status, articleID)
 
 	return err
 }

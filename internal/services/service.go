@@ -76,6 +76,12 @@ func (s *Service) HandleJobResult(ctx context.Context, res *workers.JobResult) {
 				log.Printf("failed to save publish: %v", err)
 				continue
 			}
+
+			err = s.articleRepo.UpdateStatus(ctx, id, "queued")
+			if err != nil {
+				log.Printf("failed to update status: %v", err)
+				continue
+			}
 		}
 	}
 }
@@ -86,7 +92,7 @@ func (s *Service) HandleArticle(ctx context.Context, id int64) error {
 		return err
 	}
 
-	if article.Status == "proceed" {
+	if article.Status == "completed" {
 		log.Printf("article already proceed %d", id)
 		return nil
 	}
@@ -96,13 +102,22 @@ func (s *Service) HandleArticle(ctx context.Context, id int64) error {
 		Title:       article.Title,
 	}
 
+	err = s.articleRepo.UpdateStatus(ctx, article.ID, "processing")
+	if err != nil {
+		return fmt.Errorf("failed to update status: %w", err)
+	}
+
 	tagResp, err := s.ai.GenerateTags(ctx, tagReq)
 	if err != nil {
+		err = s.articleRepo.UpdateStatus(ctx, article.ID, "failed")
+		if err != nil {
+			log.Printf("failed to update status: %v", err)
+		}
 		return fmt.Errorf("generating tags error: %w", err)
 	}
 
 	article.Tags = tagResp.Tags
-	article.Status = "proceed"
+	article.Status = "completed"
 
 	err = s.articleRepo.UpdateArticle(ctx, *article)
 	if err != nil {
