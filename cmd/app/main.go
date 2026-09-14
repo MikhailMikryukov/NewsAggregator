@@ -116,7 +116,7 @@ func run() error {
 		}
 	}()
 
-	router := handlers.NewRouter(service)
+	router := handlers.NewRouter(service, service)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.Port,

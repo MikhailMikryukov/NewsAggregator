@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	StatusError = "error"
+	StatusError   = "error"
+	StatusSuccess = "success"
 )
 
 var ErrNumParameter = errors.New("number must be greater than 0")
@@ -23,18 +24,24 @@ type NewsService interface {
 	GetAllTags(ctx context.Context) ([]string, error)
 }
 
-type NewsHandler struct {
-	s NewsService
+type RssService interface {
+	SaveRss(ctx context.Context, url string) error
 }
 
-func NewNewsHandler(s NewsService) *NewsHandler {
+type NewsHandler struct {
+	s  NewsService
+	rs RssService
+}
+
+func NewNewsHandler(s NewsService, rs RssService) *NewsHandler {
 	return &NewsHandler{
-		s: s,
+		s:  s,
+		rs: rs,
 	}
 }
 
-func NewRouter(s NewsService) *http.ServeMux {
-	handler := NewNewsHandler(s)
+func NewRouter(s NewsService, rs RssService) *http.ServeMux {
+	handler := NewNewsHandler(s, rs)
 
 	mux := http.NewServeMux()
 
@@ -50,6 +57,7 @@ func NewRouter(s NewsService) *http.ServeMux {
 	})
 
 	mux.HandleFunc("/feed", handler.handleFeed)
+	mux.HandleFunc("/add_rss", handler.saveSource)
 
 	return mux
 }
@@ -128,6 +136,25 @@ func (h *NewsHandler) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, result)
+}
+
+func (h *NewsHandler) saveSource(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	url := r.FormValue("url")
+
+	err := h.rs.SaveRss(ctx, url)
+	if err != nil {
+		h.writeJSON(w, http.StatusInternalServerError, Response{
+			Status:  StatusError,
+			Message: "error saving url",
+		})
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, Response{
+		Status:  StatusSuccess,
+		Message: "url saved",
+	})
 }
 
 func (h *NewsHandler) writeJSON(w http.ResponseWriter, status int, data interface{}) {

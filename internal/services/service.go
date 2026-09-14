@@ -136,3 +136,7 @@ func (s *Service) GetArticlesByTag(ctx context.Context, tags []string, offset in
 func (s *Service) GetAllTags(ctx context.Context) ([]string, error) {
 	return s.articleRepo.GetAllTags(ctx)
 }
+
+func (s *Service) SaveRss(ctx context.Context, url string) error {
+	return s.sourceRepo.SaveSource(ctx, url)
+}
