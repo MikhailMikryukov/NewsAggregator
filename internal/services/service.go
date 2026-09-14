@@ -10,20 +10,27 @@ import (
 	"github.com/MikhailMikryukov/NewsAggregator/internal/ai"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/models"
-	"github.com/MikhailMikryukov/NewsAggregator/internal/rabbitmq"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/repository"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/workers"
 )
 
+type Publisher interface {
+	Publish(routingKey string, body []byte) error
+}
+
+type JobSubmitter interface {
+	Submit(ctx context.Context, sourceId int, sourceURL string)
+}
+
 type Service struct {
 	articleRepo repository.ArticleRepository
 	sourceRepo  repository.SourceRepository
-	pool        *workers.Pool
-	publisher   *rabbitmq.Publisher
+	pool        JobSubmitter
+	publisher   Publisher
 	ai          ai.Tagger
 }
 
-func New(ar repository.ArticleRepository, sr repository.SourceRepository, pool *workers.Pool, publisher *rabbitmq.Publisher, ai ai.Tagger) *Service {
+func New(ar repository.ArticleRepository, sr repository.SourceRepository, pool JobSubmitter, publisher Publisher, ai ai.Tagger) *Service {
 	return &Service{
 		articleRepo: ar,
 		sourceRepo:  sr,
