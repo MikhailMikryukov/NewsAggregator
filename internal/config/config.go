@@ -44,6 +44,7 @@ type AIConfig struct {
 	Temperature       float64
 	MaxTags           int
 	Timeout           time.Duration
+	Retry             RetryStrategy
 }
 
 type RetryStrategy struct {
@@ -101,6 +102,9 @@ func loadAIConfig() (*AIConfig, error) {
 	temperatureStr := getEnv("YANDEX_GPT_TEMPERATURE", "0")
 	timeoutStr := getEnv("YANDEX_GPT_TIMEOUT", "0")
 	maxTagsStr := getEnv("YANDEX_GPT_MAX_TAGS", "5")
+	retryAttemptsStr := getEnv("YANDEX_GPT_RETRY_ATTEMPTS", "3")
+	retryDelayStr := getEnv("YANDEX_GPT_RETRY_DELAY", "1")
+	retryBackoffStr := getEnv("YANDEX_GPT_RETRY_BACKOFF", "2")
 
 	maxTokens, err := strconv.ParseInt(maxTokensStr, 10, 64)
 	if err != nil {
@@ -122,6 +126,21 @@ func loadAIConfig() (*AIConfig, error) {
 		return nil, fmt.Errorf("invalid YANDEX_GPT_MAX_TAGS: %w", err)
 	}
 
+	retryAttempts, err := strconv.Atoi(retryAttemptsStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid YANDEX_GPT_RETRY_ATTEMPTS: %w", err)
+	}
+
+	retryDelay, err := strconv.Atoi(retryDelayStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid YANDEX_GPT_RETRY_DELAY: %w", err)
+	}
+
+	retryBackoff, err := strconv.Atoi(retryBackoffStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid YANDEX_GPT_RETRY_BACKOFF: %w", err)
+	}
+
 	cfg := &AIConfig{
 		YandexKeyFilePath: YandexKeyFilePath,
 		YandexModel:       model,
@@ -130,6 +149,11 @@ func loadAIConfig() (*AIConfig, error) {
 		Temperature:       temperature,
 		MaxTags:           maxTags,
 		Timeout:           time.Duration(timeout) * time.Second,
+		Retry: RetryStrategy{
+			Attempts: retryAttempts,
+			Delay:    time.Duration(retryDelay),
+			Backoff:  float64(retryBackoff),
+		},
 	}
 
 	err = cfg.validate()
@@ -161,6 +185,18 @@ func (c *AIConfig) validate() error {
 
 	if c.Timeout < 0 {
 		errs = append(errs, "YANDEX_GPT_TIMEOUT cannot be negative")
+	}
+
+	if c.Retry.Attempts < 0 {
+		errs = append(errs, "YANDEX_GPT_RETRY_ATTEMPTS cannot be negative")
+	}
+
+	if c.Retry.Delay < 0 {
+		errs = append(errs, "YANDEX_GPT_RETRY_DELAY cannot be negative")
+	}
+
+	if c.Retry.Backoff < 0 {
+		errs = append(errs, "YANDEX_GPT_RETRY_BACKOFF cannot be negative")
 	}
 
 	if len(errs) > 0 {

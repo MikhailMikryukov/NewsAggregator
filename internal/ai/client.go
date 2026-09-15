@@ -91,6 +91,28 @@ func NewYandexAIClient(ctx context.Context, cfg config.AIConfig) (*YandexAIClien
 }
 
 func (c *YandexAIClient) GenerateTags(ctx context.Context, req TagRequest) (*TagResponse, error) {
+	delay := c.cfg.Retry.Delay
+	backoff := c.cfg.Retry.Backoff
+
+	var resp *TagResponse
+	var err error
+
+	for i := 0; i < c.cfg.Retry.Attempts; i++ {
+
+		resp, err = c.doRequest(ctx, req)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			time.Sleep(delay)
+			delay = delay * time.Duration(backoff)
+			continue
+		} else {
+			break
+		}
+	}
+
+	return resp, err
+}
+
+func (c *YandexAIClient) doRequest(ctx context.Context, req TagRequest) (*TagResponse, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()

@@ -4,14 +4,13 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
-	"log"
-	"strconv"
-
 	"github.com/MikhailMikryukov/NewsAggregator/internal/ai"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/handlers"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/models"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/repository"
 	"github.com/MikhailMikryukov/NewsAggregator/internal/workers"
+	"log"
+	"strconv"
 )
 
 type Publisher interface {

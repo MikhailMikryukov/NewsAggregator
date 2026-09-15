@@ -148,6 +148,27 @@ func (c *Consumer) worker(ctx context.Context, msgs <-chan amqp091.Delivery) {
 }
 
 func (c *Consumer) processDelivery(ctx context.Context, msg amqp091.Delivery) {
+	attempts := c.client.cfg.ConsumingStrategy.Attempts
+	delay := c.client.cfg.ConsumingStrategy.Delay
+	backoff := c.client.cfg.ConsumingStrategy.Backoff
+
+	for i := 0; i < attempts; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		handleErr := c.handler(ctx, msg)
+
+		if handleErr != nil {
+			time.Sleep(delay)
+			delay = delay * time.Duration(backoff)
+		} else {
+			break
+		}
+	}
+
 	handleErr := c.handler(ctx, msg)
 
 	if handleErr != nil {
